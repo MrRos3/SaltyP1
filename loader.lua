@@ -1,7 +1,7 @@
--- SALTY Player Hub | Fresh GitHub loader v3.5.0
+-- SALTY Player Hub | Fresh GitHub loader v3.6.0
 -- Keeps each run on the newest public main.lua rather than relying on a cached URL.
 local REPO = "https://raw.githubusercontent.com/MrRos3/SaltyP1/main/"
-local EXPECTED = "SALTY Player Hub v3.5.0"
+local EXPECTED = "SALTY Player Hub v3.6.0"
 local suffix = tostring(DateTime.now().UnixTimestampMillis) .. "-" .. tostring(math.random(100000, 999999))
 local url = REPO .. "main.lua?fresh=" .. suffix
 
@@ -19,7 +19,8 @@ if not string.find(source, EXPECTED, 1, true) then
 end
 
 if not string.find(source, "SpectatePlayerDropdown = CameraTab:Dropdown", 1, true)
-    or not string.find(source, "WalkFlingControl = FlingTab:Toggle", 1, true) then
+    or not string.find(source, "WalkFlingControl = FlingTab:Toggle", 1, true)
+    or not string.find(source, "Title = \"Enable ESP + Chams\"", 1, true) then
     error("New Camera/Fling controls missing in fetched source; refusing stale script")
 end
 
@@ -40,6 +41,6 @@ local worked, runError = xpcall(compiled, function(err)
 end)
 if not worked then
     warn("[SALTY Loader] Runtime UI error: " .. tostring(runError))
-    error("SALTY v3.5.0 startup failed: " .. tostring(runError))
+    error("SALTY v3.6.0 startup failed: " .. tostring(runError))
 end
 print("[SALTY Loader] Startup complete; check Camera > Spectate Player and Fling > WalkFling.")
