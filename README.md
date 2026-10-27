@@ -1,16 +1,20 @@
-# SALTY Player Hub v3.4.0 (Obsidian Edition)
+# SALTY Player Hub v3.4.1 (Obsidian Edition)
 
 A single-file Roblox Lua client hub based on VantaUI.
 
 ## Run the latest GitHub version
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/MrRos3/SaltyP1/main/main.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/MrRos3/SaltyP1/main/loader.lua?fresh=" .. tostring(DateTime.now().UnixTimestampMillis), true))()
 ```
+
+**Use the loader above** instead of the old static `main.lua` URL. It cache-busts the GitHub source, verifies the Spectate and WalkFling controls are in the downloaded script, and reports Luau compilation and startup errors in the executor console. The window title should show `SALTY Player Hub v3.4.1`.
+
+**Visibility check:** `Camera` tab → `Spectate Player` (nickname and @username dropdown) and `Fling` tab → `WalkFling (Touch Fling)` toggle. The two UI sections now initialize before other tabs' feature controls.
 
 The hub fetches VantaUI from [MrRos3/VantaUI](https://github.com/MrRos3/VantaUI). Your environment must support `loadstring` and `game:HttpGet`. This is an independent client script, not a Roblox Studio plugin.
 
-## Fixed in v3.4.0
+## Fixed in v3.4.1
 
 - Fixed the Luau compiler error `Out of local registers when trying to allocate profileNames: exceeded limit 200` by moving the Obsidian features and their UI into a dedicated function scope.
 - Kept Fly, Infinite Jump, Air Walk, Dash, Spectate, Freecam, Anti-Void, Fling & Return, combat assistance, player ESP, teleport, skybox controls, server hop, profiles, and waypoints.
@@ -25,6 +29,7 @@ The hub fetches VantaUI from [MrRos3/VantaUI](https://github.com/MrRos3/VantaUI)
 ## Files
 
 - [main.lua](main.lua): complete script, no ZIP files.
+- [loader.lua](loader.lua): fresh-version checker and startup diagnostics.
 
 ## Testing note
 
