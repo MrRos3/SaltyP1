@@ -2115,26 +2115,22 @@ local function nearestCombatTarget(camera)
         return part and selected or nil, part
     end
 
-    -- Two-pass top candidates without allocating and sorting a temporary table.
-    -- Check only the closest few for walls; targeting never scans on every frame.
-    local checked = {}
-    for _ = 1, math.min(4, #PlayerRoster) do
-        local candidate, best = nil, math.huge
-        for _, player in ipairs(PlayerRoster) do
-            if not checked[player] then
-                local part, delta, distance = combatCanTarget(player, camera, true, true)
-                if part then
-                    local score = Combat.Priority == "Closest to character" and distance or delta
-                    if score < best then
-                        candidate, best = player, score
-                    end
-                end
-            end
+    -- Project every candidate once, but only raycast the best candidates.
+    -- Previously this ran a separate raycast for every player on EVERY frame.
+    local candidates = {}
+    for _, player in ipairs(PlayerRoster) do
+        local part, delta, distance = combatCanTarget(player, camera, true, true)
+        if part then
+            candidates[#candidates + 1] = {
+                Player = player,
+                Score = Combat.Priority == "Closest to character" and distance or delta,
+            }
         end
-        if not candidate then break end
-        checked[candidate] = true
-        local part = combatCanTarget(candidate, camera, true)
-        if part then return candidate, part end
+    end
+    table.sort(candidates, function(a, b) return a.Score < b.Score end)
+    for _, candidate in ipairs(candidates) do
+        local part = combatCanTarget(candidate.Player, camera, true)
+        if part then return candidate.Player, part end
     end
     return nil, nil
 end
