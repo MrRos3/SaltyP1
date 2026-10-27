@@ -1,9 +1,9 @@
 -- v2.8: Adaptive / Force Override third-person camera; original anti-fling ON, full bright OFF.
--- SALTY Player Hub v3.4.0 OBSIDIAN EDITION: Movement, Camera, Waypoints, Keybinds & Profiles.
+-- SALTY Player Hub v3.4.1 OBSIDIAN EDITION: Movement, Camera, Waypoints, Keybinds & Profiles.
 -- Custom SALTY Full Bright (OFF), Anti-Fling (ON).
 -- Optimized cached part tracking; preserves v2.5 movement and ESP improvements.
 -- Untested in live Roblox. Collisions are governed by server and network ownership.
--- SALTY Player Hub v3.4.0 | OBSIDIAN EDITION
+-- SALTY Player Hub v3.4.1 | OBSIDIAN EDITION
 -- Universal player-only script:
 -- Fly, infinite jump, movement, fling, combat assistance, player ESP, skyboxes and time.
 if getgenv and getgenv().__SALTY_PLAYER_CLEANUP then
@@ -17,6 +17,8 @@ if getgenv and getgenv().__SALTY_PLAYER_WINDOW then
     getgenv().__SALTY_PLAYER_WINDOW = nil
 end
 local ENV = getgenv and getgenv() or _G
+ENV.__SALTY_PLAYER_VERSION = "3.4.1"
+warn("[SALTY Player Hub v3.4.1] Updated source fetched; initializing controls...")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -31,7 +33,7 @@ local VantaUI = loadstring(game:HttpGet(
 ))()
 VantaUI:SetTheme("Salty Special")
 local Window = VantaUI:CreateWindow({
-    Title = "SALTY Player Hub v3.4.0 | OBSIDIAN",
+    Title = "SALTY Player Hub v3.4.1 | OBSIDIAN",
     Icon = VantaUI.Brand.Image,
     Theme = "Salty Special",
     StartupTab = "Movement",
@@ -47,7 +49,7 @@ local Window = VantaUI:CreateWindow({
         Intro = false,
     },
     OpenButton = {
-        Title = "Open SALTY Obsidian Hub v3.3",
+        Title = "Open SALTY Obsidian Hub v3.4.1",
         Icon = VantaUI.Brand.Image,
         Enabled = true,
         Draggable = true,
@@ -3083,6 +3085,104 @@ local SettingsTab = Window:Tab({
     Title = "Settings",
     Icon = "settings",
 })
+-- EARLY FEATURE UI: Create critical Camera/Fling controls first so a later
+-- section's runtime error cannot hide the Spectate dropdown or WalkFling toggle.
+---------------------------------------------------------------------
+CameraTab:Paragraph({
+    Title = "SALTY v3.4.1 • Camera Suite",
+    Desc = "NEW: Spectate Player dropdown below, independent from Fling/Teleport. Search nickname or @username. You can change targets live.",
+})
+CameraTab:Section({Title = "Spectate", Icon = "eye"})
+SpectatePlayerDropdown = CameraTab:Dropdown({
+    Title = "Spectate Player",
+    Desc = "Nickname (@Username) • live player list • separate from Teleport/Fling",
+    Values = CurrentPlayerLabels,
+    Value = PlayerUsernameToLabel[State.SpectateTarget] or "No players",
+    MenuWidth = 310,
+    SearchBarEnabled = true,
+    Callback = onSpectatePlayerSelected,
+})
+ProfileControls.Spectate = CameraTab:Toggle({
+    Title = "Spectate Selected Player",
+    Desc = "Spectates the player picked above. You can change targets while watching. Shortcut: B.",
+    Value = false,
+    Callback = function(v)
+        if v then startSpectate() else stopSpectate() end
+        if v and not State.Spectating then uiSet("Spectate", false, false) end
+    end,
+})
+CameraTab:Button({Title = "Stop Spectating", Icon = "eye-off", Callback = function()
+    stopSpectate()
+    uiSet("Spectate", false, false)
+end})
+
+---------------------------------------------------------------------
+-- FLING TAB v3.4: Infinite Yield-style WalkFling and targeted return.
+---------------------------------------------------------------------
+FlingTab:Paragraph({
+    Title = "SALTY v3.4.1 • WalkFling / No-Spin Physics",
+    Desc = "Inspired by Infinite Yield's WalkFling: velocity pulses while you walk into targets, with no visual spinning. Depends on server physics and network ownership. Toggle OFF to restore normal controls.",
+})
+WalkFlingControl = FlingTab:Toggle({
+    Title = "WalkFling (Touch Fling)",
+    Desc = "Walk into players while enabled. No-spin, separate from targeted Fling & Return.",
+    Value = false,
+    Callback = function(v) setWalkFling(v) end,
+})
+FlingTab:Section({Title = "Targeted WalkFling + Return", Icon = "target"})
+local FlingPlayerDropdown = FlingTab:Dropdown({
+    Title = "Target Player",
+    Desc = "Nickname (@Username) • automatically updates",
+    Values = CurrentPlayerLabels,
+    Value = PlayerUsernameToLabel[State.SelectedPlayer] or "No players",
+    MenuWidth = 310,
+    SearchBarEnabled = true,
+    Callback = onPlayerDropdownSelected,
+})
+table.insert(PlayerDropdowns, FlingPlayerDropdown)
+
+-- Keep teleport and fling target lists synchronized without manual refresh buttons.
+for _, player in ipairs(Players:GetPlayers()) do
+    trackPlayerDisplayName(player)
+end
+bind(Players.PlayerAdded:Connect(function(player)
+    trackPlayerDisplayName(player)
+    refreshPlayerDropdowns()
+end))
+bind(Players.PlayerRemoving:Connect(function(player)
+    stopTrackingPlayerDisplayName(player)
+    refreshPlayerDropdowns(player)
+end))
+refreshPlayerDropdowns()
+
+FlingTab:Slider({
+    Title = "Fling Duration",
+    Desc = "Quick by default (2.2s); raise only if server contact is delayed.",
+    Value = {Min = 0.6, Max = 6, Default = 2.2},
+    Step = 0.2,
+    Callback = function(value)
+        State.FlingDuration = math.clamp(tonumber(value) or 2.2, 0.6, 6)
+    end,
+})
+FlingTab:Button({
+    Title = "Fling & Return",
+    Desc = "Teleport to selected target, run no-spin WalkFling-style velocity pulses, then return automatically.",
+    Icon = "zap",
+    Callback = flingSelectedPlayer,
+})
+FlingTab:Button({
+    Title = "Cancel Fling",
+    Desc = "Stop the active contact attempt and return immediately.",
+    Icon = "x-circle",
+    Callback = function()
+        if not State.Flinging then
+            return notify("Fling", "No active fling")
+        end
+        State.CancelFling = true
+        notify("Fling", "Stopping and returning")
+    end,
+})
+
 ---------------------------------------------------------------------
 -- PLAYER TAB
 ---------------------------------------------------------------------
@@ -3319,72 +3419,6 @@ ServerTab:Paragraph({
 })
 
 ---------------------------------------------------------------------
--- FLING TAB v3.4: Infinite Yield-style WalkFling and targeted return.
----------------------------------------------------------------------
-FlingTab:Paragraph({
-    Title = "WalkFling • No-Spin Physics",
-    Desc = "Inspired by Infinite Yield's WalkFling: velocity pulses while you walk into targets, with no visual spinning. Depends on server physics and network ownership. Toggle OFF to restore normal controls.",
-})
-WalkFlingControl = FlingTab:Toggle({
-    Title = "WalkFling (Touch Fling)",
-    Desc = "Walk into players while enabled. No-spin, separate from targeted Fling & Return.",
-    Value = false,
-    Callback = function(v) setWalkFling(v) end,
-})
-FlingTab:Section({Title = "Targeted WalkFling + Return", Icon = "target"})
-local FlingPlayerDropdown = FlingTab:Dropdown({
-    Title = "Target Player",
-    Desc = "Nickname (@Username) • automatically updates",
-    Values = CurrentPlayerLabels,
-    Value = PlayerUsernameToLabel[State.SelectedPlayer] or "No players",
-    MenuWidth = 310,
-    SearchBarEnabled = true,
-    Callback = onPlayerDropdownSelected,
-})
-table.insert(PlayerDropdowns, FlingPlayerDropdown)
-
--- Keep teleport and fling target lists synchronized without manual refresh buttons.
-for _, player in ipairs(Players:GetPlayers()) do
-    trackPlayerDisplayName(player)
-end
-bind(Players.PlayerAdded:Connect(function(player)
-    trackPlayerDisplayName(player)
-    refreshPlayerDropdowns()
-end))
-bind(Players.PlayerRemoving:Connect(function(player)
-    stopTrackingPlayerDisplayName(player)
-    refreshPlayerDropdowns(player)
-end))
-refreshPlayerDropdowns()
-
-FlingTab:Slider({
-    Title = "Fling Duration",
-    Desc = "Quick by default (2.2s); raise only if server contact is delayed.",
-    Value = {Min = 0.6, Max = 6, Default = 2.2},
-    Step = 0.2,
-    Callback = function(value)
-        State.FlingDuration = math.clamp(tonumber(value) or 2.2, 0.6, 6)
-    end,
-})
-FlingTab:Button({
-    Title = "Fling & Return",
-    Desc = "Teleport to selected target, run no-spin WalkFling-style velocity pulses, then return automatically.",
-    Icon = "zap",
-    Callback = flingSelectedPlayer,
-})
-FlingTab:Button({
-    Title = "Cancel Fling",
-    Desc = "Stop the active contact attempt and return immediately.",
-    Icon = "x-circle",
-    Callback = function()
-        if not State.Flinging then
-            return notify("Fling", "No active fling")
-        end
-        State.CancelFling = true
-        notify("Fling", "Stopping and returning")
-    end,
-})
----------------------------------------------------------------------
 -- COMBAT TAB
 ---------------------------------------------------------------------
 CombatTab:Section({Title = "Aim Assistance", Icon = "crosshair"})
@@ -3619,6 +3653,10 @@ local function randomSkybox()
     until chosen ~= current or #SkyboxOrder <= 2
     applySkybox(chosen)
 end
+VisualsTab:Paragraph({
+    Title = "SALTY v3.4.1 • 32 Skybox Choices",
+    Desc = "12 NEW cinematic sky looks include Crimson Veil, Obsidian Eclipse, Lavender Dream, Neon Sakura and more. Open Skybox Preset below to see them all.",
+})
 VisualsTab:Section({Title = "Skybox", Icon = "image"})
 VisualsTab:Dropdown({
     Title = "Skybox Preset",
@@ -3895,33 +3933,6 @@ MovementTab:Button({
     end,
 })
 
-CameraTab:Paragraph({
-    Title = "OBSIDIAN • Camera Suite",
-    Desc = "Spectate a player or use Freecam. Switching modes restores the previous camera first.",
-})
-CameraTab:Section({Title = "Spectate", Icon = "eye"})
-SpectatePlayerDropdown = CameraTab:Dropdown({
-    Title = "Spectate Player",
-    Desc = "Nickname (@Username) • live player list • separate from Teleport/Fling",
-    Values = CurrentPlayerLabels,
-    Value = PlayerUsernameToLabel[State.SpectateTarget] or "No players",
-    MenuWidth = 310,
-    SearchBarEnabled = true,
-    Callback = onSpectatePlayerSelected,
-})
-ProfileControls.Spectate = CameraTab:Toggle({
-    Title = "Spectate Selected Player",
-    Desc = "Spectates the player picked above. You can change targets while watching. Shortcut: B.",
-    Value = false,
-    Callback = function(v)
-        if v then startSpectate() else stopSpectate() end
-        if v and not State.Spectating then uiSet("Spectate", false, false) end
-    end,
-})
-CameraTab:Button({Title = "Stop Spectating", Icon = "eye-off", Callback = function()
-    stopSpectate()
-    uiSet("Spectate", false, false)
-end})
 CameraTab:Section({Title = "Freecam", Icon = "video"})
 ProfileControls.Freecam = CameraTab:Toggle({
     Title = "Freecam", Desc = "WASD move • Space/Ctrl vertical • RMB look • Shift boost. Default shortcut: V.",
@@ -4155,7 +4166,7 @@ pcall(function()
     end)
 end)
 notify(
-    "SALTY Player Hub v3.4.0",
+    "SALTY Player Hub v3.4.1",
     "Obsidian ready • Air Walk • Dash • Spectate • Freecam • Anti-Void • Waypoints"
 )
 end -- initializeObsidian: compiler register boundary
