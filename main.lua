@@ -1,9 +1,9 @@
 -- v2.8: Adaptive / Force Override third-person camera; original anti-fling ON, full bright OFF.
--- SALTY Player Hub v3.5.0 OBSIDIAN EDITION: Movement, Camera, Waypoints, Keybinds & Profiles.
+-- SALTY Player Hub v3.6.0 OBSIDIAN EDITION: Movement, Camera, Waypoints, Keybinds & Profiles.
 -- Custom SALTY Full Bright (OFF), Anti-Fling (ON).
 -- Optimized cached part tracking; preserves v2.5 movement and ESP improvements.
 -- Untested in live Roblox. Collisions are governed by server and network ownership.
--- SALTY Player Hub v3.5.0 | OBSIDIAN EDITION
+-- SALTY Player Hub v3.6.0 | OBSIDIAN EDITION
 -- Universal player-only script:
 -- Fly, infinite jump, movement, fling, combat assistance, player ESP, skyboxes and time.
 if getgenv and getgenv().__SALTY_PLAYER_CLEANUP then
@@ -18,7 +18,7 @@ if getgenv and getgenv().__SALTY_PLAYER_WINDOW then
 end
 local ENV = getgenv and getgenv() or _G
 ENV.__SALTY_PLAYER_VERSION = "3.4.1"
-warn("[SALTY Player Hub v3.5.0] Updated source fetched; initializing controls...")
+warn("[SALTY Player Hub v3.6.0] Updated source fetched; initializing controls...")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -33,10 +33,10 @@ local VantaUI = loadstring(game:HttpGet(
 ))()
 VantaUI:SetTheme("Salty Special")
 local Window = VantaUI:CreateWindow({
-    Title = "SALTY Player Hub v3.5.0 | OBSIDIAN",
+    Title = "SALTY Player Hub v3.6.0 | OBSIDIAN",
     Icon = VantaUI.Brand.Image,
     Theme = "Salty Special",
-    StartupTab = "Camera", -- open on the Spectate dropdown to make v3.5.0 easy to verify
+    StartupTab = "Camera", -- open on the Spectate dropdown to make v3.6.0 easy to verify
     HideSearchBar = true,
     ToggleKey = Enum.KeyCode.RightShift,
     Branding = {
@@ -49,7 +49,7 @@ local Window = VantaUI:CreateWindow({
         Intro = false,
     },
     OpenButton = {
-        Title = "Open SALTY Obsidian Hub v3.5.0",
+        Title = "Open SALTY Obsidian Hub v3.6.0",
         Icon = VantaUI.Brand.Image,
         Enabled = true,
         Draggable = true,
@@ -125,17 +125,9 @@ local State = {
     },
     ESP = {
         Enabled = false,
-        Chams = false,
-        Xray = true,
-        Names = true,
-        Distances = true,
-        Health = false,
-        Boxes = false,
-        Tracers = false,
-        TeamCheck = false,
-        TeamColors = false,
-        MaxDistance = 600,
+        MaxDistance = 650,
         Color = Color3.fromHex("#F18CA3"),
+        Epoch = 0, -- cancel pending highlight creation if the switch changes
     },
 }
 local NotificationIcon = {
@@ -1984,8 +1976,6 @@ local EspGui, FovCircle
 local AimRenderName = "SALTY_Combat_Aim_" .. tostring(LocalPlayer.UserId)
 local AimBound = false
 local EspTime = 0
-local EspFrameDt = 1 / 60
-local EspCursor = 1
 local FovTime = 0
 local AIM_SCAN_INTERVAL = 0.24 -- fewer candidate scans per second
 local CachedAimPlayer, CachedAimPart
@@ -2249,32 +2239,44 @@ local function tickCombatTool()
 end
 
 ---------------------------------------------------------------------
--- PLAYER ESP: CHAMS, NAME TAGS, HEALTH, DISTANCES, BOXES & TRACERS
--- Local visuals only. Never modifies other players' characters or damage.
+-- PLAYER ESP: ONE SWITCH = CHAMS + NAMES
+-- Native Highlight and BillboardGui smoothly follow the avatar every frame.
+-- Lua performs only occasional range/visibility checks and text updates.
 ---------------------------------------------------------------------
 local function destroyEspView(player)
     local view = EspViews[player]
     if not view then return end
-    -- Destroy ONLY our own visuals. Never destroy view.Character or player parts.
-    for _, key in ipairs({ "Highlight", "Billboard", "Box", "Tracer" }) do
-        local object = view[key]
-        if object then pcall(function() object:Destroy() end) end
-    end
+    if view.Highlight then pcall(function() view.Highlight:Destroy() end) end
+    if view.Billboard then pcall(function() view.Billboard:Destroy() end) end
     EspViews[player] = nil
 end
-
 local function clearEspViews()
     for player in pairs(EspViews) do destroyEspView(player) end
 end
-
-local function espColor(player)
-    if ESP.TeamColors and player.Team and player.Team.TeamColor then
-        return player.Team.TeamColor.Color
-    end
-    return ESP.Color
+local function hideEspView(player)
+    local view = EspViews[player]
+    if not view then return end
+    if view.Highlight and view.Highlight.Enabled then view.Highlight.Enabled = false end
+    if view.Billboard and view.Billboard.Enabled then view.Billboard.Enabled = false end
 end
 
-local function getEspView(player, char, head, root)
+local function updateEspView(player, ownRoot)
+    if not ESP.Enabled or not player or player == LocalPlayer or player.Parent ~= Players then
+        destroyEspView(player)
+        return
+    end
+    local char, hum, targetRoot = combatAlive(player)
+    if not char or not hum or hum.Health <= 0 or not targetRoot or not ownRoot then
+        hideEspView(player)
+        return
+    end
+    -- Squared distance skips sqrt (Magnitude); no camera projection needed.
+    local delta = targetRoot.Position - ownRoot.Position
+    if delta:Dot(delta) > ESP.MaxDistance * ESP.MaxDistance then
+        hideEspView(player)
+        return
+    end
+
     local view = EspViews[player]
     if view and view.Character ~= char then
         destroyEspView(player)
@@ -2284,168 +2286,89 @@ local function getEspView(player, char, head, root)
         view = {Character = char}
         EspViews[player] = view
     end
-    -- Allocate only the visuals in use. Highlights are costly on busy servers.
-    if ESP.Chams then
-        if not view.Highlight then
-            local glow = Instance.new("Highlight")
-            glow.Name = "SALTY_Chams_" .. player.UserId
-            glow.Adornee = char
-            glow.FillTransparency = 0.75
-            glow.OutlineTransparency = 0.15
-            glow.Parent = Workspace
-            view.Highlight = glow
-        end
-    elseif view.Highlight then
-        view.Highlight:Destroy()
-        view.Highlight = nil
-    end
 
-    if ESP.Names or ESP.Distances or ESP.Health then
-        if not view.Billboard then
+    -- The engine follows the character. No frame-by-frame drawing work.
+    if not view.Highlight then
+        local glow = Instance.new("Highlight")
+        glow.Name = "SALTY_Chams_" .. tostring(player.UserId)
+        glow.Adornee = char
+        glow.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        glow.FillTransparency = 0.78
+        glow.OutlineTransparency = 0.12
+        glow.FillColor = ESP.Color
+        glow.OutlineColor = ESP.Color
+        glow.Parent = Workspace
+        view.Highlight = glow
+    end
+    if view.Highlight.FillColor ~= ESP.Color then
+        view.Highlight.FillColor = ESP.Color
+        view.Highlight.OutlineColor = ESP.Color
+    end
+    if not view.Highlight.Enabled then view.Highlight.Enabled = true end
+
+    if not view.Billboard then
+        local guiParent = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        if guiParent then
             local gui = Instance.new("BillboardGui")
-            gui.Name = "SALTY_Names_" .. player.UserId
-            gui.Adornee = head or root
-            gui.Size = UDim2.fromOffset(225, 46)
-            gui.StudsOffsetWorldSpace = Vector3.new(0, 3, 0)
+            gui.Name = "SALTY_ESPName_" .. tostring(player.UserId)
+            gui.Adornee = char:FindFirstChild("Head") or targetRoot
+            gui.Size = UDim2.fromOffset(200, 24)
+            gui.StudsOffsetWorldSpace = Vector3.new(0, 2.2, 0)
+            gui.MaxDistance = ESP.MaxDistance
             gui.AlwaysOnTop = true
             gui.LightInfluence = 0
             gui.ResetOnSpawn = false
-            gui.Parent = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+            gui.Parent = guiParent
+            local label = Instance.new("TextLabel")
+            label.Name = "Name"
+            label.Size = UDim2.fromScale(1, 1)
+            label.BackgroundTransparency = 1
+            label.Font = Enum.Font.GothamBold
+            label.TextSize = 13
+            label.TextStrokeColor3 = Color3.new(0, 0, 0)
+            label.TextStrokeTransparency = 0.3
+            label.TextColor3 = ESP.Color
+            label.Text = player.DisplayName .. " (@" .. player.Name .. ")"
+            label.Parent = gui
             view.Billboard = gui
-            local name = Instance.new("TextLabel")
-            name.Name = "PlayerName"
-            name.Size = UDim2.new(1, 0, 0, 23)
-            name.BackgroundTransparency = 1
-            name.TextSize = 14
-            name.Font = Enum.Font.GothamBold
-            name.TextStrokeColor3 = Color3.new(0, 0, 0)
-            name.TextStrokeTransparency = 0.25
-            name.Parent = gui
-            view.NameLabel = name
-            local stats = Instance.new("TextLabel")
-            stats.Name = "PlayerStats"
-            stats.Position = UDim2.new(0, 0, 0, 21)
-            stats.Size = UDim2.new(1, 0, 0, 20)
-            stats.BackgroundTransparency = 1
-            stats.TextSize = 12
-            stats.Font = Enum.Font.GothamMedium
-            stats.TextColor3 = Color3.fromRGB(239, 239, 239)
-            stats.TextStrokeColor3 = Color3.new(0, 0, 0)
-            stats.TextStrokeTransparency = 0.35
-            stats.Parent = gui
-            view.StatLabel = stats
+            view.NameLabel = label
         end
-    elseif view.Billboard then
-        view.Billboard:Destroy()
-        view.Billboard = nil
-        view.NameLabel = nil
-        view.StatLabel = nil
-    end
-
-    if ESP.Boxes then
-        if not view.Box then
-            local box = Instance.new("BoxHandleAdornment")
-            box.Name = "SALTY_Box_" .. player.UserId
-            box.Adornee = root
-            box.Size = Vector3.new(4, 6, 2.7)
-            box.CFrame = CFrame.new(0, 0.3, 0)
-            box.AlwaysOnTop = true
-            box.Transparency = 0.82
-            box.Parent = Workspace
-            view.Box = box
-        end
-    elseif view.Box then
-        view.Box:Destroy()
-        view.Box = nil
-    end
-    if ESP.Tracers then
-        if not view.Tracer then
-            local tracer = Instance.new("Frame")
-            tracer.Name = "SALTY_Tracer_" .. player.UserId
-            tracer.BorderSizePixel = 0
-            tracer.AnchorPoint = Vector2.new(0.5, 0.5)
-            tracer.BackgroundTransparency = 0.18
-            tracer.ZIndex = 3
-            tracer.Parent = makeEspGui()
-            view.Tracer = tracer
-        end
-    elseif view.Tracer then
-        view.Tracer:Destroy()
-        view.Tracer = nil
-    end
-    return view
-end
-
-local function hideEspView(player)
-    local view = EspViews[player]
-    if not view then return end
-    if view.Highlight then view.Highlight.Enabled = false end
-    if view.Box then view.Box.Visible = false end
-    if view.Billboard then view.Billboard.Enabled = false end
-    if view.Tracer then view.Tracer.Visible = false end
-end
-
-local function updateEspView(player, camera, ownRoot)
-    if player == LocalPlayer or not player.Parent then destroyEspView(player); return end
-    if ESP.TeamCheck and isTeammate(player) then hideEspView(player); return end
-    local char, hum, root = combatAlive(player)
-    if not char or not root or not hum or hum.Health <= 0 then destroyEspView(player); return end
-    if not ownRoot then hideEspView(player); return end
-    local distance = (root.Position - ownRoot.Position).Magnitude
-    if distance > ESP.MaxDistance then hideEspView(player); return end
-    local view = getEspView(player, char, char:FindFirstChild("Head"), root)
-    local color = espColor(player)
-    if view.Highlight then
-        if not view.Highlight.Enabled then view.Highlight.Enabled = true end
-        if view.Highlight.FillColor ~= color then view.Highlight.FillColor = color end
-        if view.Highlight.OutlineColor ~= color then view.Highlight.OutlineColor = color end
-        local depth = ESP.Xray and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
-        if view.Highlight.DepthMode ~= depth then view.Highlight.DepthMode = depth end
-    end
-    if view.Box then
-        if not view.Box.Visible then view.Box.Visible = true end
-        if view.Box.Color3 ~= color then view.Box.Color3 = color end
     end
     if view.Billboard then
         if not view.Billboard.Enabled then view.Billboard.Enabled = true end
-        if view.NameLabel.Visible ~= ESP.Names then view.NameLabel.Visible = ESP.Names end
-        if ESP.Names then
-            if view.NameLabel.TextColor3 ~= color then view.NameLabel.TextColor3 = color end
+        if view.Billboard.MaxDistance ~= ESP.MaxDistance then
+            view.Billboard.MaxDistance = ESP.MaxDistance
+        end
+        local label = view.NameLabel
+        if label then
+            if label.TextColor3 ~= ESP.Color then label.TextColor3 = ESP.Color end
             local name = player.DisplayName .. " (@" .. player.Name .. ")"
-            if view.NameLabel.Text ~= name then view.NameLabel.Text = name end
-        end
-        view.StatLabel.Visible = ESP.Distances or ESP.Health
-        if ESP.Distances or ESP.Health then
-            local details = ""
-            if ESP.Distances then details = tostring(math.floor(distance + 0.5)) .. " studs" end
-            if ESP.Health then
-                local health = string.format("%d / %d HP", math.max(0, math.floor(hum.Health)), math.floor(hum.MaxHealth))
-                details = details ~= "" and (details .. "  |  " .. health) or health
-            end
-            if view.StatLabel.Text ~= details then view.StatLabel.Text = details end
-        end
-    end
-    if view.Tracer then
-        view.Tracer.Visible = false
-        if camera then
-            local loc, visible = camera:WorldToViewportPoint(root.Position)
-            if visible and loc.Z > 0 then
-                local start = Vector2.new(camera.ViewportSize.X * 0.5, camera.ViewportSize.Y - 16)
-                local target = Vector2.new(loc.X, loc.Y)
-                local delta = target - start
-                view.Tracer.Visible = true
-                if view.Tracer.BackgroundColor3 ~= color then view.Tracer.BackgroundColor3 = color end
-                view.Tracer.Size = UDim2.fromOffset(delta.Magnitude, 1.5)
-                view.Tracer.Position = UDim2.fromOffset((start.X + target.X) / 2, (start.Y + target.Y) / 2)
-                view.Tracer.Rotation = math.deg(math.atan2(delta.Y, delta.X))
-            end
+            if label.Text ~= name then label.Text = name end
         end
     end
 end
 
 local function setEspEnabled(value)
-    ESP.Enabled = value == true
-    if not ESP.Enabled then clearEspViews() end
+    local enabled = value == true
+    if ESP.Enabled == enabled then return end
+    ESP.Enabled = enabled
+    ESP.Epoch += 1
+    if not enabled then
+        clearEspViews()
+        return
+    end
+
+    -- Five new highlights per physics frame avoids a one-frame creation spike.
+    local epoch = ESP.Epoch
+    task.spawn(function()
+        local count = 0
+        for _, player in ipairs(PlayerRoster) do
+            if not State.Running or not ESP.Enabled or epoch ~= ESP.Epoch then return end
+            updateEspView(player, rootPart())
+            count += 1
+            if count % 5 == 0 then RunService.Heartbeat:Wait() end
+        end
+    end)
 end
 
 bind(Players.PlayerRemoving:Connect(function(player)
@@ -2483,26 +2406,14 @@ bind(RunService.Heartbeat:Connect(function(dt)
         FovTime = 0
     end
     if not ESP.Enabled then return end
-
-    local total = #PlayerRoster
-    if total == 0 then return end
-    EspFrameDt = EspFrameDt * 0.94 + math.min(dt, 0.10) * 0.06
-    -- Roughly 1-2 players per scheduled pass. Heavier frames and busy
-    -- servers automatically use a smaller budget; there is no mode dropdown.
-    local constrained = EspFrameDt > (1 / 45)
-    local interval = constrained and 0.19 or 0.12
-    if total > 20 then interval *= 1.2 end
-    if total > 38 then interval *= 1.3 end
+    -- Chams and labels track motion natively; update lightweight state
+    -- 4 times per second, rather than repainting geometry every frame.
     EspTime += dt
-    if EspTime < interval then return end
+    if EspTime < 0.25 then return end
     EspTime = 0
-    local camera = Workspace.CurrentCamera
     local ownRoot = rootPart()
-    for _ = 1, math.min(constrained and 1 or 2, total) do
-        if EspCursor > total then EspCursor = 1 end
-        local player = PlayerRoster[EspCursor]
-        EspCursor += 1
-        if player then updateEspView(player, camera, ownRoot) end
+    for _, player in ipairs(PlayerRoster) do
+        updateEspView(player, ownRoot)
     end
 end))
 
@@ -3157,7 +3068,7 @@ local SettingsTab = Window:Tab({
 -- section's runtime error cannot hide the Spectate dropdown or WalkFling toggle.
 ---------------------------------------------------------------------
 CameraTab:Paragraph({
-    Title = "SALTY v3.5.0 • Camera Suite",
+    Title = "SALTY v3.6.0 • Camera Suite",
     Desc = "NEW: Spectate Player dropdown below, independent from Fling/Teleport. Search nickname or @username. You can change targets live.",
 })
 CameraTab:Section({Title = "Spectate", Icon = "eye"})
@@ -3188,7 +3099,7 @@ end})
 -- FLING TAB: optional WalkFling toggle and restored original target fling.
 ---------------------------------------------------------------------
 FlingTab:Paragraph({
-    Title = "SALTY v3.5.0 • WalkFling / No-Spin Physics",
+    Title = "SALTY v3.6.0 • WalkFling / No-Spin Physics",
     Desc = "Inspired by Infinite Yield's WalkFling: velocity pulses while you walk into targets, with no visual spinning. Depends on server physics and network ownership. Toggle OFF to restore normal controls.",
 })
 WalkFlingControl = FlingTab:Toggle({
@@ -3570,80 +3481,24 @@ CombatTab:Paragraph({
 ---------------------------------------------------------------------
 -- ESP TAB
 ---------------------------------------------------------------------
-ESPTab:Section({Title = "Player Highlights", Icon = "scan-eye"})
+ESPTab:Section({Title = "SALTY • Fast ESP", Icon = "scan-eye"})
+ESPTab:Paragraph({
+    Title = "ESP + Chams",
+    Desc = "One toggle enables smooth highlights and Nickname (@Username). No tracers, boxes, health/distance labels, or manual performance modes.",
+})
 ProfileControls.ESP = ESPTab:Toggle({
-    Title = "Enable ESP",
-    Desc = "Master switch for local-only player overlays.",
+    Title = "Enable ESP + Chams",
+    Desc = "Automatically highlights nearby players and shows their names.",
     Value = false,
     Callback = setEspEnabled,
 })
-ESPTab:Toggle({
-    Title = "Chams",
-    Desc = "GPU-heavy player outlines; disabled by default for FPS.",
-    Value = false,
-    Callback = function(value) ESP.Chams = value == true end,
-})
-ESPTab:Toggle({
-    Title = "See Through Walls",
-    Desc = "Draw chams even when a player is behind a wall.",
-    Value = true,
-    Callback = function(value) ESP.Xray = value == true end,
-})
-ESPTab:Toggle({
-    Title = "Player Names",
-    Desc = "Nickname and @Username above each player.",
-    Value = true,
-    Callback = function(value) ESP.Names = value == true end,
-})
-ESPTab:Toggle({
-    Title = "Distance Labels",
-    Value = true,
-    Callback = function(value) ESP.Distances = value == true end,
-})
-ESPTab:Toggle({
-    Title = "Health Labels",
-    Value = false,
-    Callback = function(value) ESP.Health = value == true end,
-})
-ESPTab:Toggle({
-    Title = "3D Boxes",
-    Desc = "Outline other characters with a thin 3D box.",
-    Value = false,
-    Callback = function(value) ESP.Boxes = value == true end,
-})
-ESPTab:Toggle({
-    Title = "Tracers",
-    Desc = "Lines from the bottom of the screen to onscreen players.",
-    Value = false,
-    Callback = function(value) ESP.Tracers = value == true end,
-})
-ESPTab:Section({Title = "ESP Filtering & Colors", Icon = "palette"})
-ESPTab:Toggle({
-    Title = "Ignore Teammates",
-    Value = false,
-    Callback = function(value) ESP.TeamCheck = value == true end,
-})
-ESPTab:Toggle({
-    Title = "Use Team Colors",
-    Value = false,
-    Callback = function(value) ESP.TeamColors = value == true end,
-})
 ESPTab:Colorpicker({
-    Title = "ESP Accent Color",
-    Desc = "Customize chams, names, boxes, and tracers.",
+    Title = "Highlight Color",
+    Desc = "Color of Chams and names.",
     Default = Color3.fromHex("#F18CA3"),
     Callback = function(color)
         if typeof(color) == "Color3" then ESP.Color = color end
     end,
-})
-ESPTab:Slider({
-    Title = "Max ESP Distance",
-    Value = {Min = 100, Max = 2000, Default = 600}, Step = 50,
-    Callback = function(value) ESP.MaxDistance = tonumber(value) or 600 end,
-})
-ESPTab:Paragraph({
-    Title = "ESP Notes",
-    Desc = "SALTY automatically adjusts ESP refresh and work per frame to reduce FPS drops. Extra effects appear only when enabled. No performance settings needed.",
 })
 
 ---------------------------------------------------------------------
@@ -3713,7 +3568,7 @@ local function randomSkybox()
     applySkybox(chosen)
 end
 VisualsTab:Paragraph({
-    Title = "SALTY v3.5.0 • 32 Skybox Choices",
+    Title = "SALTY v3.6.0 • 32 Skybox Choices",
     Desc = "12 NEW cinematic sky looks include Crimson Veil, Obsidian Eclipse, Lavender Dream, Neon Sakura and more. Open Skybox Preset below to see them all.",
 })
 VisualsTab:Section({Title = "Skybox", Icon = "image"})
@@ -4225,7 +4080,7 @@ pcall(function()
     end)
 end)
 notify(
-    "SALTY Player Hub v3.5.0",
+    "SALTY Player Hub v3.6.0",
     "Obsidian ready • Air Walk • Dash • Spectate • Freecam • Anti-Void • Waypoints"
 )
 end -- initializeObsidian: compiler register boundary
