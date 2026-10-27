@@ -1,9 +1,9 @@
 -- v2.8: Adaptive / Force Override third-person camera; original anti-fling ON, full bright OFF.
--- SALTY Player Hub v3.3.1 OBSIDIAN EDITION: Movement, Camera, Waypoints, Keybinds & Profiles.
+-- SALTY Player Hub v3.3.2 OBSIDIAN EDITION: Movement, Camera, Waypoints, Keybinds & Profiles.
 -- Custom SALTY Full Bright (OFF), Anti-Fling (ON).
 -- Optimized cached part tracking; preserves v2.5 movement and ESP improvements.
 -- Untested in live Roblox. Collisions are governed by server and network ownership.
--- SALTY Player Hub v3.3.1 | OBSIDIAN EDITION
+-- SALTY Player Hub v3.3.2 | OBSIDIAN EDITION
 -- Universal player-only script:
 -- Fly, infinite jump, movement, fling, combat assistance, player ESP, skyboxes and time.
 if getgenv and getgenv().__SALTY_PLAYER_CLEANUP then
@@ -31,7 +31,7 @@ local VantaUI = loadstring(game:HttpGet(
 ))()
 VantaUI:SetTheme("Salty Special")
 local Window = VantaUI:CreateWindow({
-    Title = "SALTY Player Hub v3.3.1 | OBSIDIAN",
+    Title = "SALTY Player Hub v3.3.2 | OBSIDIAN",
     Icon = VantaUI.Brand.Image,
     Theme = "Salty Special",
     StartupTab = "Movement",
@@ -77,6 +77,7 @@ local State = {
     AntiVoid = false,
     AntiVoidOffset = 35,
     Spectating = false,
+    SpectateTarget = nil, -- independent username for Spectate (not Teleport/Fling)
     Freecam = false,
     FreecamSpeed = 35,
     FreecamFOV = 70,
@@ -1400,6 +1401,7 @@ end))
 -- PLAYER LIST: always display nickname AND username, but store the
 -- immutable Roblox username for Teleport/Fling targeting.
 local PlayerDropdowns = {}
+local SpectatePlayerDropdown = nil -- independently controlled camera target
 local PlayerLabelToUsername = {}
 local PlayerUsernameToLabel = {}
 local PlayerDisplayConnections = {}
@@ -1451,6 +1453,16 @@ local function refreshPlayerDropdowns(excludePlayer)
             dropdown.Value = selectedLabel
             dropdown:Refresh(CurrentPlayerLabels)
         end
+    end
+
+    -- Spectate has its own username selection, but shares fresh player labels.
+    -- Preserve its selection across nickname changes and player joins.
+    if not State.SpectateTarget or not usernameToLabel[State.SpectateTarget] then
+        State.SpectateTarget = labelToUsername[labels[1]]
+    end
+    if SpectatePlayerDropdown then
+        SpectatePlayerDropdown.Value = usernameToLabel[State.SpectateTarget] or "No players"
+        SpectatePlayerDropdown:Refresh(CurrentPlayerLabels)
     end
 end
 
@@ -2443,7 +2455,7 @@ end
 local setFreecam -- forward declaration for camera mode exclusivity
 local function startSpectate()
     if State.Flinging then return notify("Camera", "Wait until Fling has finished") end
-    local player = State.SelectedPlayer and getPlayer(State.SelectedPlayer)
+    local player = State.SpectateTarget and getPlayer(State.SpectateTarget)
     local targetHum = player and player.Character and player.Character:FindFirstChildOfClass("Humanoid")
     local camera = Workspace.CurrentCamera
     if not targetHum or targetHum.Health <= 0 or not camera then
@@ -2466,6 +2478,36 @@ local function startSpectate()
     camera.CameraSubject = targetHum
     notify("Camera", "Spectating " .. player.DisplayName .. " (@" .. player.Name .. ")")
 end
+
+local function onSpectatePlayerSelected(value)
+    local username = PlayerLabelToUsername[tostring(dropdownValue(value) or "")]
+    -- Dropdown:Refresh() can invoke callbacks; ignore unchanged/placeholder values.
+    if not username or username == State.SpectateTarget then return end
+    State.SpectateTarget = username
+
+    -- Switch the current camera subject without replacing the original saved view.
+    if State.Spectating then
+        local selected = getPlayer(username)
+        local subject = selected and selected.Character and selected.Character:FindFirstChildOfClass("Humanoid")
+        local camera = Workspace.CurrentCamera
+        if not subject or subject.Health <= 0 or not camera then
+            stopSpectate()
+            return notify("Camera", "Selected player's character is unavailable")
+        end
+        if camera ~= SpectateCamera then
+            SpectateSaved = {Type = camera.CameraType, Subject = camera.CameraSubject, CFrame = camera.CFrame}
+            SpectateCamera = camera
+        end
+        SpectatePlayer = selected
+        camera.CameraType = Enum.CameraType.Custom
+        camera.CameraSubject = subject
+        notify("Camera", "Now spectating " .. selected.DisplayName .. " (@" .. selected.Name .. ")")
+    end
+end
+
+bind(Players.PlayerRemoving:Connect(function(player)
+    if State.Spectating and SpectatePlayer == player then stopSpectate() end
+end))
 bind(RunService.Heartbeat:Connect(function()
     if not State.Running or not State.Spectating then return end
     local p = SpectatePlayer
@@ -3717,9 +3759,18 @@ CameraTab:Paragraph({
     Desc = "Spectate a player or use Freecam. Switching modes restores the previous camera first.",
 })
 CameraTab:Section({Title = "Spectate", Icon = "eye"})
+SpectatePlayerDropdown = CameraTab:Dropdown({
+    Title = "Spectate Player",
+    Desc = "Nickname (@Username) • live player list • separate from Teleport/Fling",
+    Values = CurrentPlayerLabels,
+    Value = PlayerUsernameToLabel[State.SpectateTarget] or "No players",
+    MenuWidth = 310,
+    SearchBarEnabled = true,
+    Callback = onSpectatePlayerSelected,
+})
 ProfileControls.Spectate = CameraTab:Toggle({
     Title = "Spectate Selected Player",
-    Desc = "Uses the selected player from the Teleport/Fling dropdown. Default shortcut: B.",
+    Desc = "Spectates the player picked above. You can change targets while watching. Shortcut: B.",
     Value = false,
     Callback = function(v)
         if v then startSpectate() else stopSpectate() end
@@ -3842,7 +3893,7 @@ ConfigTab:Paragraph({
 ---------------------------------------------------------------------
 SettingsTab:Paragraph({
     Title = "Controls",
-    Desc = "F = Fly toggle\nX = Dash, V = Freecam, G = Air Walk, B = Spectate\nBackSlash = Panic\nWASD = Move\nSpace = Up during Fly\nInfinite Jump = press jump again midair (keyboard/touch/controller)\nCtrl = Down\nCtrl + Click = Teleport\nFling & Return = Fling tab\nHold RMB = Aim Assist\nQ = Toggle Aim Lock\nCombat & ESP tabs = player assistance and overlays\nPlayer list auto-refreshes on join/leave/name changes\nRightShift = Open/close hub",
+    Desc = "F = Fly toggle\nX = Dash, V = Freecam, G = Air Walk, B = Spectate\nBackSlash = Panic\nWASD = Move\nSpace = Up during Fly\nInfinite Jump = press jump again midair (keyboard/touch/controller)\nCtrl = Down\nCtrl + Click = Teleport\nFling & Return = Fling tab\nHold RMB = Aim Assist\nQ = Toggle Aim Lock\nCombat & ESP tabs = player assistance and overlays\nTeleport, Fling and Spectate player lists auto-refresh on join/leave/name changes\nRightShift = Open/close hub",
 })
 SettingsTab:Paragraph({
     Title = "Visuals",
@@ -3945,6 +3996,7 @@ local function cleanup()
     end
     table.clear(State.Connections)
     table.clear(PlayerDropdowns)
+    SpectatePlayerDropdown = nil
     ENV.__SALTY_PLAYER_CLEANUP = nil
     -- We deliberately leave Window destruction to the caller or VantaUI's X:
     -- destroying it inside OnDestroy can re-enter the callback.
@@ -3960,7 +4012,7 @@ pcall(function()
     end)
 end)
 notify(
-    "SALTY Player Hub v3.3.1",
+    "SALTY Player Hub v3.3.2",
     "Obsidian ready • Air Walk • Dash • Spectate • Freecam • Anti-Void • Waypoints"
 )
 end -- initializeObsidian: compiler register boundary
