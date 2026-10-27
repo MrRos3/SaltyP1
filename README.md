@@ -1,4 +1,4 @@
-# SALTY Player Hub v3.3.1 (Obsidian Edition)
+# SALTY Player Hub v3.3.2 (Obsidian Edition)
 
 A single-file Roblox Lua client hub based on VantaUI.
 
@@ -10,10 +10,11 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/MrRos3/SaltyP1/main/m
 
 The hub fetches VantaUI from [MrRos3/VantaUI](https://github.com/MrRos3/VantaUI). Your environment must support `loadstring` and `game:HttpGet`. This is an independent client script, not a Roblox Studio plugin.
 
-## Fixed in v3.3.1
+## Fixed in v3.3.2
 
 - Fixed the Luau compiler error `Out of local registers when trying to allocate profileNames: exceeded limit 200` by moving the Obsidian features and their UI into a dedicated function scope.
 - Kept Fly, Infinite Jump, Air Walk, Dash, Spectate, Freecam, Anti-Void, Fling & Return, combat assistance, player ESP, teleport, skybox controls, server hop, profiles, and waypoints.
+- Added a dedicated Spectate dropdown in the Camera tab, independently tracking the target's nickname and username with live updates; changing the dropdown switches the live camera subject.
 - Preserved existing cleanup hooks so running the script again can replace an older hub instance.
 
 ## Files
