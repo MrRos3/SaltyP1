@@ -1,9 +1,9 @@
 -- v2.8: Adaptive / Force Override third-person camera; original anti-fling ON, full bright OFF.
--- SALTY Player Hub v3.4.3 OBSIDIAN EDITION: Movement, Camera, Waypoints, Keybinds & Profiles.
+-- SALTY Player Hub v3.5.0 OBSIDIAN EDITION: Movement, Camera, Waypoints, Keybinds & Profiles.
 -- Custom SALTY Full Bright (OFF), Anti-Fling (ON).
 -- Optimized cached part tracking; preserves v2.5 movement and ESP improvements.
 -- Untested in live Roblox. Collisions are governed by server and network ownership.
--- SALTY Player Hub v3.4.3 | OBSIDIAN EDITION
+-- SALTY Player Hub v3.5.0 | OBSIDIAN EDITION
 -- Universal player-only script:
 -- Fly, infinite jump, movement, fling, combat assistance, player ESP, skyboxes and time.
 if getgenv and getgenv().__SALTY_PLAYER_CLEANUP then
@@ -18,7 +18,7 @@ if getgenv and getgenv().__SALTY_PLAYER_WINDOW then
 end
 local ENV = getgenv and getgenv() or _G
 ENV.__SALTY_PLAYER_VERSION = "3.4.1"
-warn("[SALTY Player Hub v3.4.3] Updated source fetched; initializing controls...")
+warn("[SALTY Player Hub v3.5.0] Updated source fetched; initializing controls...")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -33,10 +33,10 @@ local VantaUI = loadstring(game:HttpGet(
 ))()
 VantaUI:SetTheme("Salty Special")
 local Window = VantaUI:CreateWindow({
-    Title = "SALTY Player Hub v3.4.3 | OBSIDIAN",
+    Title = "SALTY Player Hub v3.5.0 | OBSIDIAN",
     Icon = VantaUI.Brand.Image,
     Theme = "Salty Special",
-    StartupTab = "Camera", -- open on the Spectate dropdown to make v3.4.3 easy to verify
+    StartupTab = "Camera", -- open on the Spectate dropdown to make v3.5.0 easy to verify
     HideSearchBar = true,
     ToggleKey = Enum.KeyCode.RightShift,
     Branding = {
@@ -49,7 +49,7 @@ local Window = VantaUI:CreateWindow({
         Intro = false,
     },
     OpenButton = {
-        Title = "Open SALTY Obsidian Hub v3.4.3",
+        Title = "Open SALTY Obsidian Hub v3.5.0",
         Icon = VantaUI.Brand.Image,
         Enabled = true,
         Draggable = true,
@@ -135,7 +135,6 @@ local State = {
         TeamCheck = false,
         TeamColors = false,
         MaxDistance = 600,
-        Quality = "Performance", -- Performance / Balanced / Fast
         Color = Color3.fromHex("#F18CA3"),
     },
 }
@@ -748,6 +747,7 @@ local CameraRayCharacter = nil
 local CameraLastAvatarScan = 0
 local CameraVisibleCharacter = nil
 local CameraVisibleParts = {}
+local CameraVisibilityAdded = nil
 local CameraOriginalTransparency = setmetatable({}, {__mode = "k"})
 
 local function setZoomRange(minimum, maximum)
@@ -762,6 +762,10 @@ local function setZoomRange(minimum, maximum)
 end
 
 local function clearCameraVisibility()
+    if CameraVisibilityAdded then
+        CameraVisibilityAdded:Disconnect()
+        CameraVisibilityAdded = nil
+    end
     for part, old in pairs(CameraOriginalTransparency) do
         if part and part.Parent then
             pcall(function() part.LocalTransparencyModifier = old end)
@@ -778,16 +782,19 @@ local function exposeCharacterWhileOutside(char, now)
         clearCameraVisibility()
         CameraVisibleCharacter = char
     end
-    if now - CameraLastAvatarScan > 0.7 then
+    if CameraLastAvatarScan == 0 then
         CameraLastAvatarScan = now
-        -- Scan at most every 0.7 s; render steps only visit cached body parts.
-        for _, object in ipairs(char:GetDescendants()) do
+        -- Scan once when third-person overrides start, then watch new accessories.
+        -- Repeated GetDescendants() calls during render were unnecessary.
+        local function cachePart(object)
             if object:IsA("BasePart") and object.Name ~= "HumanoidRootPart"
                 and object.Transparency < 0.99 and CameraOriginalTransparency[object] == nil then
                 CameraOriginalTransparency[object] = object.LocalTransparencyModifier
                 CameraVisibleParts[#CameraVisibleParts + 1] = object
             end
         end
+        for _, object in ipairs(char:GetDescendants()) do cachePart(object) end
+        CameraVisibilityAdded = char.DescendantAdded:Connect(cachePart)
     end
     for _, part in ipairs(CameraVisibleParts) do
         if part.Parent and part.Transparency < 0.99 and part.LocalTransparencyModifier ~= 0 then
@@ -1075,20 +1082,79 @@ local function setNoClip(enabled)
         NoClipCharacter = nil
     end
 end
--- ANTI-FLING: local player-collision protection (ON by default).
--- Checks other characters every physics step, including new character parts.
--- Does not modify your own character. Saved changes restore when turned off.
+-- ANTI-FLING: event-driven collision guard (ON by default).
+-- Every player-character is indexed ONCE; changed/new parts are handled by
+-- property and DescendantAdded signals, not expensive per-frame world scans.
+-- All subscriptions and original CanCollide states restore on disable.
 ---------------------------------------------------------------------
 local AFChanged = setmetatable({}, {__mode = "k"})
-local AFStepConnection = nil
+local AFTracked = {}
+local AFPlayerListeners = {}
+local AFRosterAdded, AFRosterRemoving
+local AFGuardActive = false
+
+local function afUnwatchCharacter(player)
+    local record = AFTracked[player]
+    if not record then return end
+    if record.DescendantAdded then record.DescendantAdded:Disconnect() end
+    for _, connection in pairs(record.PartConnections) do
+        connection:Disconnect()
+    end
+    AFTracked[player] = nil
+end
+
+local function afUnwatchPlayer(player)
+    afUnwatchCharacter(player)
+    local conns = AFPlayerListeners[player]
+    if conns then
+        for _, connection in ipairs(conns) do
+            connection:Disconnect()
+        end
+        AFPlayerListeners[player] = nil
+    end
+end
+
+local function afGuardPart(part)
+    if part and part.Parent and part.CanCollide and AFGuardActive
+        and State.Running and State.AntiFling and not State.AntiFlingSuspended then
+        AFChanged[part] = true
+        part.CanCollide = false
+    end
+end
+
+local function afWatchCharacter(player, char)
+    afUnwatchCharacter(player)
+    if not char or not AFGuardActive then return end
+    local record = {Character = char, PartConnections = {}, DescendantAdded = nil}
+    AFTracked[player] = record
+    local function watchPart(part)
+        if not part:IsA("BasePart") or record.PartConnections[part] then return end
+        record.PartConnections[part] = part:GetPropertyChangedSignal("CanCollide"):Connect(function()
+            if AFTracked[player] == record then afGuardPart(part) end
+        end)
+        afGuardPart(part)
+    end
+    for _, part in ipairs(char:GetDescendants()) do watchPart(part) end
+    record.DescendantAdded = char.DescendantAdded:Connect(watchPart)
+end
+
+local function afWatchPlayer(player)
+    if player == LocalPlayer or AFPlayerListeners[player] then return end
+    AFPlayerListeners[player] = {
+        player.CharacterAdded:Connect(function(char) afWatchCharacter(player, char) end),
+        player.CharacterRemoving:Connect(function() afUnwatchCharacter(player) end),
+    }
+    if player.Character then afWatchCharacter(player, player.Character) end
+end
 
 local function afStop()
-    if AFStepConnection then
-        AFStepConnection:Disconnect()
-        AFStepConnection = nil
-    end
+    AFGuardActive = false
+    if AFRosterAdded then AFRosterAdded:Disconnect(); AFRosterAdded = nil end
+    if AFRosterRemoving then AFRosterRemoving:Disconnect(); AFRosterRemoving = nil end
+    for player in pairs(AFPlayerListeners) do afUnwatchPlayer(player) end
+    -- Disconnect watchers BEFORE restoring collisions, avoiding callback loops.
     for part in pairs(AFChanged) do
-        if part.Parent and not part.CanCollide then
+        if part and part.Parent and not part.CanCollide then
             pcall(function() part.CanCollide = true end)
         end
         AFChanged[part] = nil
@@ -1096,43 +1162,25 @@ local function afStop()
 end
 
 local function afStart()
-    if AFStepConnection or not State.Running or not State.AntiFling
+    if AFGuardActive or not State.Running or not State.AntiFling
         or State.AntiFlingSuspended then return end
-    AFStepConnection = RunService.Stepped:Connect(function()
-        if not State.Running or not State.AntiFling or State.AntiFlingSuspended then
-            return
-        end
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character then
-                for _, part in ipairs(player.Character:GetDescendants()) do
-                    if part:IsA("BasePart") and part.CanCollide then
-                        AFChanged[part] = true
-                        part.CanCollide = false
-                    end
-                end
-            end
-        end
-    end)
+    AFGuardActive = true
+    for _, player in ipairs(Players:GetPlayers()) do afWatchPlayer(player) end
+    AFRosterAdded = Players.PlayerAdded:Connect(afWatchPlayer)
+    AFRosterRemoving = Players.PlayerRemoving:Connect(afUnwatchPlayer)
 end
 
 local function setAntiFling(enabled)
     State.AntiFling = enabled == true
-    if State.AntiFling then
-        afStart()
-    else
-        afStop()
-    end
+    if State.AntiFling then afStart() else afStop() end
 end
 
 local function suspendAntiFling(suspend)
     suspend = suspend == true
     if State.AntiFlingSuspended == suspend then return end
     State.AntiFlingSuspended = suspend
-    if suspend then
-        afStop()
-    elseif State.AntiFling then
-        afStart()
-    end
+    if suspend then afStop()
+    elseif State.AntiFling then afStart() end
 end
 
 ---------------------------------------------------------------------
@@ -2067,22 +2115,26 @@ local function nearestCombatTarget(camera)
         return part and selected or nil, part
     end
 
-    -- Project every candidate once, but only raycast the best candidates.
-    -- Previously this ran a separate raycast for every player on EVERY frame.
-    local candidates = {}
-    for _, player in ipairs(PlayerRoster) do
-        local part, delta, distance = combatCanTarget(player, camera, true, true)
-        if part then
-            candidates[#candidates + 1] = {
-                Player = player,
-                Score = Combat.Priority == "Closest to character" and distance or delta,
-            }
+    -- Two-pass top candidates without allocating and sorting a temporary table.
+    -- Check only the closest few for walls; targeting never scans on every frame.
+    local checked = {}
+    for _ = 1, math.min(4, #PlayerRoster) do
+        local candidate, best = nil, math.huge
+        for _, player in ipairs(PlayerRoster) do
+            if not checked[player] then
+                local part, delta, distance = combatCanTarget(player, camera, true, true)
+                if part then
+                    local score = Combat.Priority == "Closest to character" and distance or delta
+                    if score < best then
+                        candidate, best = player, score
+                    end
+                end
+            end
         end
-    end
-    table.sort(candidates, function(a, b) return a.Score < b.Score end)
-    for _, candidate in ipairs(candidates) do
-        local part = combatCanTarget(candidate.Player, camera, true)
-        if part then return candidate.Player, part end
+        if not candidate then break end
+        checked[candidate] = true
+        local part = combatCanTarget(candidate, camera, true)
+        if part then return candidate, part end
     end
     return nil, nil
 end
@@ -2408,38 +2460,52 @@ bind(Players.PlayerRemoving:Connect(function(player)
     end
 end))
 
+-- All performance decisions are automatic. Heavy work is strictly time-sliced.
+local CombatToolTime = 0
 bind(RunService.Heartbeat:Connect(function(dt)
     if not State.Running then return end
-    -- Slow EWMA; avoids one-off hitches causing the ESP scheduler to oscillate.
-    EspFrameDt = EspFrameDt * 0.95 + math.min(dt, 0.10) * 0.05
-    -- The expensive ESP scan is never run when disabled. Scale its cadence
-    -- down on crowded servers; leave combat rendering independent.
-    if Combat.AutoUseTool then tickCombatTool() end
-    EspTime = EspTime + dt
-    FovTime = FovTime + dt
-    if FovTime >= 0.22 then
+    if not ESP.Enabled and not Combat.AutoUseTool
+        and not (Combat.ShowFOV and Combat.Aim) then return end
+
+    if Combat.AutoUseTool then
+        CombatToolTime += dt
+        if CombatToolTime >= 0.16 then
+            CombatToolTime = 0
+            tickCombatTool()
+        end
+    else
+        CombatToolTime = 0
+    end
+
+    if Combat.ShowFOV and Combat.Aim then
+        FovTime += dt
+        if FovTime >= 0.25 then
+            FovTime = 0
+            updateFovCircle()
+        end
+    else
         FovTime = 0
-        if Combat.ShowFOV and Combat.Aim then updateFovCircle() end
     end
     if not ESP.Enabled then return end
+
     local total = #PlayerRoster
     if total == 0 then return end
-    -- Update at a fixed budget; low FPS and crowded servers automatically
-    -- reduce work. Never update all labels or highlights in one frame.
-    local mode = ESP.Quality
-    local interval = mode == "Fast" and 0.10 or mode == "Balanced" and 0.18 or 0.30
-    local batch = mode == "Fast" and 4 or mode == "Balanced" and 3 or 2
-    if total > 16 then interval = interval * 1.4 end
-    if total > 35 then interval = interval * 1.5 end
-    if EspFrameDt > (1 / 42) then interval = interval * 1.55 end
+    EspFrameDt = EspFrameDt * 0.94 + math.min(dt, 0.10) * 0.06
+    -- Roughly 1-2 players per scheduled pass. Heavier frames and busy
+    -- servers automatically use a smaller budget; there is no mode dropdown.
+    local constrained = EspFrameDt > (1 / 45)
+    local interval = constrained and 0.19 or 0.12
+    if total > 20 then interval *= 1.2 end
+    if total > 38 then interval *= 1.3 end
+    EspTime += dt
     if EspTime < interval then return end
     EspTime = 0
     local camera = Workspace.CurrentCamera
     local ownRoot = rootPart()
-    for _ = 1, math.min(batch, total) do
+    for _ = 1, math.min(constrained and 1 or 2, total) do
         if EspCursor > total then EspCursor = 1 end
         local player = PlayerRoster[EspCursor]
-        EspCursor = EspCursor + 1
+        EspCursor += 1
         if player then updateEspView(player, camera, ownRoot) end
     end
 end))
@@ -3095,7 +3161,7 @@ local SettingsTab = Window:Tab({
 -- section's runtime error cannot hide the Spectate dropdown or WalkFling toggle.
 ---------------------------------------------------------------------
 CameraTab:Paragraph({
-    Title = "SALTY v3.4.3 • Camera Suite",
+    Title = "SALTY v3.5.0 • Camera Suite",
     Desc = "NEW: Spectate Player dropdown below, independent from Fling/Teleport. Search nickname or @username. You can change targets live.",
 })
 CameraTab:Section({Title = "Spectate", Icon = "eye"})
@@ -3126,7 +3192,7 @@ end})
 -- FLING TAB: optional WalkFling toggle and restored original target fling.
 ---------------------------------------------------------------------
 FlingTab:Paragraph({
-    Title = "SALTY v3.4.3 • WalkFling / No-Spin Physics",
+    Title = "SALTY v3.5.0 • WalkFling / No-Spin Physics",
     Desc = "Inspired by Infinite Yield's WalkFling: velocity pulses while you walk into targets, with no visual spinning. Depends on server physics and network ownership. Toggle OFF to restore normal controls.",
 })
 WalkFlingControl = FlingTab:Toggle({
@@ -3312,7 +3378,7 @@ ProfileControls.NoClip = PlayerTab:Toggle({
 PlayerTab:Section({Title = "Protection", Icon = "shield"})
 ProfileControls.AntiFling = PlayerTab:Toggle({
     Title = "Anti-Fling",
-    Desc = "ON by default. Checks other characters each physics step to prevent local fling collisions. Pauses during your own fling and restores modified parts when disabled.",
+    Desc = "ON by default. Efficient event-driven collision guard, no full-player scans every frame. Automatically restores collision on disable.",
     Value = true,
     Callback = function(value)
         setAntiFling(value)
@@ -3509,15 +3575,6 @@ CombatTab:Paragraph({
 -- ESP TAB
 ---------------------------------------------------------------------
 ESPTab:Section({Title = "Player Highlights", Icon = "scan-eye"})
-ESPTab:Dropdown({
-    Title = "ESP Performance",
-    Desc = "Performance reduces how frequently each player's overlay updates.",
-    Values = {"Performance", "Balanced", "Fast"},
-    Value = "Performance",
-    Callback = function(value)
-        ESP.Quality = tostring(dropdownValue(value) or "Performance")
-    end,
-})
 ProfileControls.ESP = ESPTab:Toggle({
     Title = "Enable ESP",
     Desc = "Master switch for local-only player overlays.",
@@ -3590,7 +3647,7 @@ ESPTab:Slider({
 })
 ESPTab:Paragraph({
     Title = "ESP Notes",
-    Desc = "Optimized: only requested visuals are created; Performance updates fewer players per frame. Chams, health and tracers cost more GPU/CPU time. Try Performance before Fast.",
+    Desc = "SALTY automatically adjusts ESP refresh and work per frame to reduce FPS drops. Extra effects appear only when enabled. No performance settings needed.",
 })
 
 ---------------------------------------------------------------------
@@ -3660,7 +3717,7 @@ local function randomSkybox()
     applySkybox(chosen)
 end
 VisualsTab:Paragraph({
-    Title = "SALTY v3.4.3 • 32 Skybox Choices",
+    Title = "SALTY v3.5.0 • 32 Skybox Choices",
     Desc = "12 NEW cinematic sky looks include Crimson Veil, Obsidian Eclipse, Lavender Dream, Neon Sakura and more. Open Skybox Preset below to see them all.",
 })
 VisualsTab:Section({Title = "Skybox", Icon = "image"})
@@ -4172,7 +4229,7 @@ pcall(function()
     end)
 end)
 notify(
-    "SALTY Player Hub v3.4.3",
+    "SALTY Player Hub v3.5.0",
     "Obsidian ready • Air Walk • Dash • Spectate • Freecam • Anti-Void • Waypoints"
 )
 end -- initializeObsidian: compiler register boundary
