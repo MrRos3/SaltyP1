@@ -1,9 +1,9 @@
 -- v2.8: Adaptive / Force Override third-person camera; original anti-fling ON, full bright OFF.
--- SALTY Player Hub v3.4.2 OBSIDIAN EDITION: Movement, Camera, Waypoints, Keybinds & Profiles.
+-- SALTY Player Hub v3.4.3 OBSIDIAN EDITION: Movement, Camera, Waypoints, Keybinds & Profiles.
 -- Custom SALTY Full Bright (OFF), Anti-Fling (ON).
 -- Optimized cached part tracking; preserves v2.5 movement and ESP improvements.
 -- Untested in live Roblox. Collisions are governed by server and network ownership.
--- SALTY Player Hub v3.4.2 | OBSIDIAN EDITION
+-- SALTY Player Hub v3.4.3 | OBSIDIAN EDITION
 -- Universal player-only script:
 -- Fly, infinite jump, movement, fling, combat assistance, player ESP, skyboxes and time.
 if getgenv and getgenv().__SALTY_PLAYER_CLEANUP then
@@ -18,7 +18,7 @@ if getgenv and getgenv().__SALTY_PLAYER_WINDOW then
 end
 local ENV = getgenv and getgenv() or _G
 ENV.__SALTY_PLAYER_VERSION = "3.4.1"
-warn("[SALTY Player Hub v3.4.2] Updated source fetched; initializing controls...")
+warn("[SALTY Player Hub v3.4.3] Updated source fetched; initializing controls...")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -33,10 +33,10 @@ local VantaUI = loadstring(game:HttpGet(
 ))()
 VantaUI:SetTheme("Salty Special")
 local Window = VantaUI:CreateWindow({
-    Title = "SALTY Player Hub v3.4.2 | OBSIDIAN",
+    Title = "SALTY Player Hub v3.4.3 | OBSIDIAN",
     Icon = VantaUI.Brand.Image,
     Theme = "Salty Special",
-    StartupTab = "Camera", -- open on the Spectate dropdown to make v3.4.2 easy to verify
+    StartupTab = "Camera", -- open on the Spectate dropdown to make v3.4.3 easy to verify
     HideSearchBar = true,
     ToggleKey = Enum.KeyCode.RightShift,
     Branding = {
@@ -49,7 +49,7 @@ local Window = VantaUI:CreateWindow({
         Intro = false,
     },
     OpenButton = {
-        Title = "Open SALTY Obsidian Hub v3.4.2",
+        Title = "Open SALTY Obsidian Hub v3.4.3",
         Icon = VantaUI.Brand.Image,
         Enabled = true,
         Draggable = true,
@@ -101,7 +101,6 @@ local State = {
     Flinging = false,
     CancelFling = false,
     FlingDuration = 2.2, -- quick contact; can increase for difficult moving players
-    FlingPower = 180, -- controlled horizontal contact velocity; never inject 10000 vertical
     WalkFling = false, -- Infinite Yield-style no-spin contact pulses while walking
     SelectedSkybox = "Original",
     Time = Lighting.ClockTime,
@@ -1622,7 +1621,7 @@ local function setWalkFling(enabled, quiet)
 end
 
 ---------------------------------------------------------------------
--- FLING & RETURN v3.4 | WALKFLING-STYLE NO-SPIN CONTACT PULSES
+-- FLING & RETURN RESTORED: original v3.3.2 spinning contact/return
 -- Physical contact is client-initiated and game/server dependent.
 -- The target position follows live replicated movement; spin is not success.
 ---------------------------------------------------------------------
@@ -1688,12 +1687,11 @@ local function flingSelectedPlayer()
     State.CancelFling = false
     suspendAntiFling(true)
     if savedFlying then setFly(false) end
-    -- Targeted contact needs collidable body parts. Forced NoClip was
-    -- preventing contact in some games. Preserve the user's original setting.
     if savedNoClip then setNoClip(false) end
-    notify("Fling", string.format("Grounded contact: %s | %.1fs max", player.Name, duration))
+    notify("Fling", string.format("Quick contact: %s | %.1fs max", player.Name, duration))
 
     task.spawn(function()
+        local spinMover, moveMover
         local savedCollisions = {}
         local ended = false
         local result = "Contact attempt finished; server physics decides outcome"
@@ -1710,6 +1708,9 @@ local function flingSelectedPlayer()
             if ended then return end
             ended = true
             State.CancelFling = true
+            if spinMover then pcall(function() spinMover:Destroy() end) end
+            if moveMover then pcall(function() moveMover:Destroy() end) end
+            spinMover, moveMover = nil, nil
 
             for part, original in pairs(savedCollisions) do
                 if part and part.Parent then
@@ -1744,7 +1745,7 @@ local function flingSelectedPlayer()
             ActiveFlingRestore = nil
             suspendAntiFling(false)
             if State.Running and character() == mine then
-                setNoClip(savedNoClip)
+                if savedNoClip then setNoClip(true) end
                 if savedFlying then setFly(true) end
             end
         end
@@ -1788,24 +1789,30 @@ local function flingSelectedPlayer()
                     part.CanCollide = true
                 end
             end
-            -- Stable targeting: no spin or upward velocity injection.
-            -- Strong Y=10000 pulses caused the local character to fly above
-            -- the target. We keep the contact at the target's root height.
-            myRoot.AssemblyAngularVelocity = Vector3.zero
+            spinMover = Instance.new("BodyAngularVelocity")
+            spinMover.Name = "SALTY_QuickContactSpin"
+            spinMover.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
+            spinMover.P = 1e8
+            spinMover.AngularVelocity = Vector3.new(8500, 8800, 7900)
+            spinMover.Parent = myRoot
+
+            moveMover = Instance.new("BodyVelocity")
+            moveMover.Name = "SALTY_QuickContactMove"
+            moveMover.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+            moveMover.P = 18000
+            moveMover.Velocity = Vector3.zero
+            moveMover.Parent = myRoot
 
             local started = os.clock()
             local frame, lastReaction = 0, 0
-            -- Stand just beside the body instead of teleporting inside it;
-            -- overlap resolution used to push our character upward.
             local contactOffsets = {
-                {along = -1.20, lateral =  0.00},
-                {along =  1.20, lateral =  0.00},
-                {along =  0.00, lateral =  1.25},
-                {along =  0.00, lateral = -1.25},
-                {along = -0.90, lateral =  0.90},
-                {along = -0.90, lateral = -0.90},
-                {along =  0.90, lateral =  0.90},
-                {along =  0.90, lateral = -0.90},
+                {along = -0.25, lateral = 0.0, height = -0.05},
+                {along =  0.00, lateral = 0.0, height =  0.15},
+                {along =  0.05, lateral = 0.35, height = -0.15},
+                {along =  0.05, lateral = -0.35, height = -0.15},
+                {along =  0.40, lateral = 0.0, height =  0.0},
+                {along = -0.30, lateral = 0.25, height = -0.25},
+                {along = -0.30, lateral = -0.25, height =  0.25},
             }
             while State.Running and not State.CancelFling and not ended do
                 local now = os.clock()
@@ -1836,7 +1843,7 @@ local function flingSelectedPlayer()
                 -- Walking avatars are already interpolated by Roblox. Small lead
                 -- (~0.4-0.8 studs when walking) keeps us in collision range.
                 local leadTime = math.clamp(0.025 + speed * 0.0011, 0.025, 0.075)
-                local lead = Vector3.new(velocity.X, 0, velocity.Z) * leadTime
+                local lead = velocity * leadTime
                 if lead.Magnitude > 1.4 then lead = lead.Unit * 1.4 end
 
                 -- Keep each lane long enough for a physics-step contact instead
@@ -1844,43 +1851,29 @@ local function flingSelectedPlayer()
                 local lane = math.floor(elapsed / 0.115) % #contactOffsets + 1
                 local offset = contactOffsets[lane]
                 local body = contact and contact.Parent and contact:IsA("BasePart") and contact or theirRoot
-                -- Always use the target's ROOT height (not head/torso height)
-                -- so repeated CFrame corrections never climb above the target.
-                local goal = theirRoot.Position + lead
+                local center = body.Position
+                if (center - theirRoot.Position).Magnitude > 3 then center = theirRoot.Position end
+                local goal = center + lead
                     + forward * offset.along
                     + side * offset.lateral
-                goal = Vector3.new(goal.X, theirRoot.Position.Y, goal.Z)
-                local contactVector = Vector3.new(
-                    theirRoot.Position.X - goal.X, 0, theirRoot.Position.Z - goal.Z
-                )
-                local contactDirection = contactVector.Magnitude > 0.05
-                    and contactVector.Unit or forward
+                    + Vector3.new(0, offset.height, 0)
+                if (goal - theirRoot.Position).Magnitude > 3.2 then
+                    goal = theirRoot.Position + lead + side * offset.lateral
+                end
 
                 frame = frame + 1
-                -- Reposition beside the target before applying a bounded,
-                -- horizontal-only push THROUGH their root. Vertical speed is
-                -- always zero: no upward 10000-stud/s blast.
-                myRoot.AssemblyLinearVelocity = Vector3.zero
-                myRoot.AssemblyAngularVelocity = Vector3.zero
-                myRoot.CFrame = CFrame.new(goal) * savedCF.Rotation
-                local distance = (myRoot.Position - theirRoot.Position).Magnitude
-                if distance < 4.25 then
-                    myRoot.AssemblyLinearVelocity =
-                        contactDirection * math.clamp(State.FlingPower or 180, 70, 420)
-                end
-                -- One physics frame for physical contact, followed by an
-                -- immediate reset; never carry huge residual momentum.
-                RunService.Heartbeat:Wait()
-                if ended or State.CancelFling or not State.Running
-                    or character() ~= mine or not myRoot.Parent then break end
-                myRoot.AssemblyLinearVelocity = Vector3.zero
-                myRoot.AssemblyAngularVelocity = Vector3.zero
-                -- Recover if the game's collision solver still lifts us.
-                if math.abs(myRoot.Position.Y - theirRoot.Position.Y) > 4.5 then
-                    myRoot.CFrame = CFrame.new(goal) * savedCF.Rotation
-                end
+                -- Keep contact centered on a torso while applying strong angular
+                -- force. The old 330-stud/s sideways push threw US out of range.
+                myRoot.CFrame = CFrame.new(goal) * CFrame.Angles(0, (lane - 1) * 0.23, 0)
+                local burstDirection = forward + side * (lane % 2 == 0 and 0.3 or -0.3)
+                burstDirection = burstDirection.Unit
+                local impact = burstDirection * (175 + (lane % 3) * 26)
+                    + Vector3.new(0, 95, 0)
+                moveMover.Velocity = impact
+                myRoot.AssemblyLinearVelocity = impact
+                myRoot.AssemblyAngularVelocity = Vector3.new(8500, 8800, 7900)
                 if body.CanCollide then contactSeen = true end
-                if distance < 4.25 then
+                if (myRoot.Position - theirRoot.Position).Magnitude < 3 then
                     closeFrames = closeFrames + 1
                 end
 
@@ -1894,7 +1887,8 @@ local function flingSelectedPlayer()
                     result = "Large target movement observed; server outcome unconfirmed"
                     break
                 end
-                -- Heartbeat wait above paces the contact physics attempt.
+                -- Limit runtime to actual physics frames; no extra polling loop.
+                RunService.Heartbeat:Wait()
             end
             if not motionReacted and closeFrames == 0 then
                 result = "Could not sustain close contact; check the game's collision rules"
@@ -3101,7 +3095,7 @@ local SettingsTab = Window:Tab({
 -- section's runtime error cannot hide the Spectate dropdown or WalkFling toggle.
 ---------------------------------------------------------------------
 CameraTab:Paragraph({
-    Title = "SALTY v3.4.2 • Camera Suite",
+    Title = "SALTY v3.4.3 • Camera Suite",
     Desc = "NEW: Spectate Player dropdown below, independent from Fling/Teleport. Search nickname or @username. You can change targets live.",
 })
 CameraTab:Section({Title = "Spectate", Icon = "eye"})
@@ -3129,10 +3123,10 @@ CameraTab:Button({Title = "Stop Spectating", Icon = "eye-off", Callback = functi
 end})
 
 ---------------------------------------------------------------------
--- FLING TAB v3.4: Infinite Yield-style WalkFling and targeted return.
+-- FLING TAB: optional WalkFling toggle and restored original target fling.
 ---------------------------------------------------------------------
 FlingTab:Paragraph({
-    Title = "SALTY v3.4.2 • WalkFling / No-Spin Physics",
+    Title = "SALTY v3.4.3 • WalkFling / No-Spin Physics",
     Desc = "Inspired by Infinite Yield's WalkFling: velocity pulses while you walk into targets, with no visual spinning. Depends on server physics and network ownership. Toggle OFF to restore normal controls.",
 })
 WalkFlingControl = FlingTab:Toggle({
@@ -3141,7 +3135,7 @@ WalkFlingControl = FlingTab:Toggle({
     Value = false,
     Callback = function(v) setWalkFling(v) end,
 })
-FlingTab:Section({Title = "Targeted WalkFling + Return", Icon = "target"})
+FlingTab:Section({Title = "Original Fling & Return", Icon = "target"})
 local FlingPlayerDropdown = FlingTab:Dropdown({
     Title = "Target Player",
     Desc = "Nickname (@Username) • automatically updates",
@@ -3176,18 +3170,9 @@ FlingTab:Slider({
         State.FlingDuration = math.clamp(tonumber(value) or 2.2, 0.6, 6)
     end,
 })
-FlingTab:Slider({
-    Title = "Contact Power (Horizontal)",
-    Desc = "Bounded sideways push, no vertical force. Lower if your avatar slides away; higher for a stronger contact attempt.",
-    Value = {Min = 70, Max = 420, Default = 180},
-    Step = 10,
-    Callback = function(value)
-        State.FlingPower = math.clamp(tonumber(value) or 180, 70, 420)
-    end,
-})
 FlingTab:Button({
     Title = "Fling & Return",
-    Desc = "Stay beside the selected target at root height, apply controlled horizontal contact, then return. No upward launch.",
+    Desc = "Original v3.3.2 spinning contact engine: target chase, physical impulse and automatic return.",
     Icon = "zap",
     Callback = flingSelectedPlayer,
 })
@@ -3675,7 +3660,7 @@ local function randomSkybox()
     applySkybox(chosen)
 end
 VisualsTab:Paragraph({
-    Title = "SALTY v3.4.2 • 32 Skybox Choices",
+    Title = "SALTY v3.4.3 • 32 Skybox Choices",
     Desc = "12 NEW cinematic sky looks include Crimson Veil, Obsidian Eclipse, Lavender Dream, Neon Sakura and more. Open Skybox Preset below to see them all.",
 })
 VisualsTab:Section({Title = "Skybox", Icon = "image"})
@@ -4187,7 +4172,7 @@ pcall(function()
     end)
 end)
 notify(
-    "SALTY Player Hub v3.4.2",
+    "SALTY Player Hub v3.4.3",
     "Obsidian ready • Air Walk • Dash • Spectate • Freecam • Anti-Void • Waypoints"
 )
 end -- initializeObsidian: compiler register boundary
