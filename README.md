@@ -1,4 +1,4 @@
-# SALTY Player Hub v3.4.3 (Obsidian Edition)
+# SALTY Player Hub v3.5.0 (Obsidian Edition)
 
 A single-file Roblox Lua client hub based on VantaUI.
 
@@ -8,13 +8,25 @@ A single-file Roblox Lua client hub based on VantaUI.
 loadstring(game:HttpGet("https://raw.githubusercontent.com/MrRos3/SaltyP1/main/loader.lua?fresh=" .. tostring(DateTime.now().UnixTimestampMillis), true))()
 ```
 
-**Use the loader above** instead of the old static `main.lua` URL. It cache-busts the GitHub source, verifies the Spectate and WalkFling controls are in the downloaded script, and reports Luau compilation and startup errors in the executor console. The window title should show `SALTY Player Hub v3.4.3`.
+**Use the loader above** instead of the old static `main.lua` URL. It cache-busts the GitHub source, verifies the Spectate and WalkFling controls are in the downloaded script, and reports Luau compilation and startup errors in the executor console. The window title should show `SALTY Player Hub v3.5.0`.
 
 **Visibility check:** `Camera` tab → `Spectate Player` (nickname and @username dropdown) and `Fling` tab → `WalkFling (Touch Fling)` toggle. The two UI sections now initialize before other tabs' feature controls.
 
 The hub fetches VantaUI from [MrRos3/VantaUI](https://github.com/MrRos3/VantaUI). Your environment must support `loadstring` and `game:HttpGet`. This is an independent client script, not a Roblox Studio plugin.
 
-## Fixed in v3.4.3
+## Performance overhaul (v3.5.0)
+
+No performance menus or quality presets: SALTY automatically minimizes work.
+
+- **Anti-Fling** is still ON by default, but it now caches each player's character parts once and responds to `CanCollide` changes and respawns through event listeners. This replaces the expensive `GetDescendants()` scan on *every physics frame*.
+- **ESP** has automatic frame-time and server-size budgets, updating a small number of players per scheduled pass. The **ESP Performance** dropdown and associated mode state are removed.
+- **Camera** transparency caching scans the local avatar once per activation and follows new accessories through a lightweight event instead of rescanning every 0.7 seconds.
+- **Combat** keeps its existing single-pass target ranking. Automatic tool checks and FOV indicator updates are time-sliced.
+- No change to the original **Fling & Return** engine restored in v3.4.3, the independent WalkFling toggle, Spectate dropdown, or cinematic skyboxes.
+
+These are source-level performance optimizations, **not measured FPS guarantees**. Live Roblox testing is still required.
+
+## Fixed in v3.5.0
 
 - Fixed the Luau compiler error `Out of local registers when trying to allocate profileNames: exceeded limit 200` by moving the Obsidian features and their UI into a dedicated function scope.
 - Kept Fly, Infinite Jump, Air Walk, Dash, Spectate, Freecam, Anti-Void, Fling & Return, combat assistance, player ESP, teleport, skybox controls, server hop, profiles, and waypoints.
