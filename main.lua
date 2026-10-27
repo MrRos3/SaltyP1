@@ -1690,7 +1690,6 @@ local function flingSelectedPlayer()
     notify("Fling", string.format("WalkFling-style contact: %s | %.1fs max", player.Name, duration))
 
     task.spawn(function()
-        local spinMover, moveMover
         local savedCollisions = {}
         local ended = false
         local result = "Contact attempt finished; server physics decides outcome"
@@ -1707,9 +1706,6 @@ local function flingSelectedPlayer()
             if ended then return end
             ended = true
             State.CancelFling = true
-            if spinMover then pcall(function() spinMover:Destroy() end) end
-            if moveMover then pcall(function() moveMover:Destroy() end) end
-            spinMover, moveMover = nil, nil
 
             for part, original in pairs(savedCollisions) do
                 if part and part.Parent then
@@ -1851,8 +1847,8 @@ local function flingSelectedPlayer()
                 end
 
                 frame = frame + 1
-                -- Keep contact centered on a torso while applying strong angular
-                -- force. The old 330-stud/s sideways push threw US out of range.
+                -- Center contact on the torso while applying no-spin velocity
+                -- bursts. Do not apply an angular force or orbit the player.
                 myRoot.CFrame = CFrame.new(goal) * savedCF.Rotation
                 local frameVelocity = myRoot.AssemblyLinearVelocity
                 myRoot.AssemblyAngularVelocity = Vector3.zero
