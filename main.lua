@@ -1,9 +1,9 @@
 -- v2.8: Adaptive / Force Override third-person camera; original anti-fling ON, full bright OFF.
--- SALTY Player Hub v3.3.2 OBSIDIAN EDITION: Movement, Camera, Waypoints, Keybinds & Profiles.
+-- SALTY Player Hub v3.4.0 OBSIDIAN EDITION: Movement, Camera, Waypoints, Keybinds & Profiles.
 -- Custom SALTY Full Bright (OFF), Anti-Fling (ON).
 -- Optimized cached part tracking; preserves v2.5 movement and ESP improvements.
 -- Untested in live Roblox. Collisions are governed by server and network ownership.
--- SALTY Player Hub v3.3.2 | OBSIDIAN EDITION
+-- SALTY Player Hub v3.4.0 | OBSIDIAN EDITION
 -- Universal player-only script:
 -- Fly, infinite jump, movement, fling, combat assistance, player ESP, skyboxes and time.
 if getgenv and getgenv().__SALTY_PLAYER_CLEANUP then
@@ -31,7 +31,7 @@ local VantaUI = loadstring(game:HttpGet(
 ))()
 VantaUI:SetTheme("Salty Special")
 local Window = VantaUI:CreateWindow({
-    Title = "SALTY Player Hub v3.3.2 | OBSIDIAN",
+    Title = "SALTY Player Hub v3.4.0 | OBSIDIAN",
     Icon = VantaUI.Brand.Image,
     Theme = "Salty Special",
     StartupTab = "Movement",
@@ -99,6 +99,7 @@ local State = {
     Flinging = false,
     CancelFling = false,
     FlingDuration = 2.2, -- quick contact; can increase for difficult moving players
+    WalkFling = false, -- Infinite Yield-style no-spin contact pulses while walking
     SelectedSkybox = "Original",
     Time = Lighting.ClockTime,
     LockTime = false,
@@ -213,6 +214,8 @@ local function currentSky()
     CreatedSky = sky
     return sky
 end
+-- Preserve the original six-face cubemaps; the cinematic variations below
+-- intentionally reuse these known face IDs instead of guessing new assets.
 local Skyboxes = {
     ["Galaxy"] = {
         Bk = "rbxassetid://159454299",
@@ -367,7 +370,44 @@ local Skyboxes = {
         Up = "rbxassetid://78391907",
     },
 }
+-- Cinematic skybox variations: graded looks derived from the verified cubemaps
+-- above. These apply a reversible local ColorCorrectionEffect to the scene.
+local SkyboxTones = {
+    ["Crimson Veil"]   = {Base = "Red Night", Color = Color3.fromRGB(255, 135, 164), Contrast = 0.18, Saturation = 0.12},
+    ["Obsidian Eclipse"] = {Base = "Galaxy", Color = Color3.fromRGB(141, 109, 190), Contrast = 0.36, Saturation = -0.18, Brightness = -0.10},
+    ["Lavender Dream"] = {Base = "Purple Gradient", Color = Color3.fromRGB(205, 173, 255), Contrast = -0.08, Saturation = 0.24},
+    ["Rose Quartz"]    = {Base = "Pink Gradient", Color = Color3.fromRGB(255, 187, 218), Contrast = -0.08, Saturation = 0.22},
+    ["Glacial Dawn"]   = {Base = "Soft Blue", Color = Color3.fromRGB(153, 230, 255), Contrast = 0.05, Saturation = -0.12},
+    ["Teal Nebula"]    = {Base = "Neptune", Color = Color3.fromRGB(128, 255, 233), Contrast = 0.20, Saturation = 0.20},
+    ["Amber Haze"]     = {Base = "Sunset", Color = Color3.fromRGB(255, 211, 149), Contrast = 0.08, Saturation = 0.16},
+    ["Coral Afterglow"] = {Base = "Sunset", Color = Color3.fromRGB(255, 160, 186), Contrast = 0.12, Saturation = 0.25},
+    ["Noir Violet"]    = {Base = "Aesthetic Night", Color = Color3.fromRGB(172, 145, 232), Contrast = 0.28, Saturation = -0.15, Brightness = -0.08},
+    ["Neon Sakura"]    = {Base = "Vaporwave Neon", Color = Color3.fromRGB(255, 149, 219), Contrast = 0.18, Saturation = 0.35},
+    ["Moonlit Cabin"]  = {Base = "Cinematic Cabin Sky", Color = Color3.fromRGB(179, 205, 255), Contrast = 0.15, Saturation = -0.16, Brightness = -0.06},
+    ["Electric Dusk"]  = {Base = "Blue Horizon", Color = Color3.fromRGB(152, 186, 255), Contrast = 0.24, Saturation = 0.20},
+}
+local SkyToneEffect = nil
+local function clearSkyTone()
+    if SkyToneEffect then
+        pcall(function() SkyToneEffect:Destroy() end)
+        SkyToneEffect = nil
+    end
+end
+local function applySkyTone(tone)
+    clearSkyTone()
+    if not tone then return end
+    local effect = Instance.new("ColorCorrectionEffect")
+    effect.Name = "__SALTY_SkyboxTone"
+    effect.TintColor = tone.Color or Color3.new(1, 1, 1)
+    effect.Contrast = tone.Contrast or 0
+    effect.Saturation = tone.Saturation or 0
+    effect.Brightness = tone.Brightness or 0
+    effect.Parent = Lighting
+    SkyToneEffect = effect
+end
+
 local function restoreOriginalSky()
+    clearSkyTone()
     local saltySky = Lighting:FindFirstChild("__SALTY_SKY")
     if saltySky and saltySky:IsA("Sky") then
         saltySky:Destroy()
@@ -404,11 +444,14 @@ local function applySkybox(name)
         notify("Skybox", "Restored original sky")
         return
     end
-    local preset = Skyboxes[name]
+    local tone = SkyboxTones[name]
+    local baseName = tone and tone.Base or name
+    local preset = Skyboxes[baseName]
     if not preset then
         return notify("Skybox", "Unknown skybox preset")
     end
     local sky = currentSky()
+    applySkyTone(tone)
     sky.SkyboxBk = preset.Bk
     sky.SkyboxDn = preset.Dn
     sky.SkyboxFt = preset.Ft
@@ -416,16 +459,16 @@ local function applySkybox(name)
     sky.SkyboxRt = preset.Rt
     sky.SkyboxUp = preset.Up
     sky.CelestialBodiesShown = not (
-        name == "Vaporwave Neon"
-        or name == "Purple Gradient"
-        or name == "Pink Gradient"
-        or name == "Among Us"
-        or name == "Skeleton"
-        or name == "Dark Meme"
+        baseName == "Vaporwave Neon"
+        or baseName == "Purple Gradient"
+        or baseName == "Pink Gradient"
+        or baseName == "Among Us"
+        or baseName == "Skeleton"
+        or baseName == "Dark Meme"
     )
-    if name == "Galaxy" or name == "Aesthetic Night" or name == "Neptune" then
+    if baseName == "Galaxy" or baseName == "Aesthetic Night" or baseName == "Neptune" then
         sky.StarCount = 3000
-    elseif name == "Tropic" then
+    elseif baseName == "Tropic" then
         sky.StarCount = 100
     else
         sky.StarCount = 1000
@@ -1500,7 +1543,83 @@ end
 -- Initialize player data before constructing either dropdown.
 refreshPlayerDropdowns()
 ---------------------------------------------------------------------
--- FLING & RETURN v2.9 | QUICK CONTACT + WALKING TARGET TRACKING
+-- WALKFLING ENGINE | Based on IY's non-spinning velocity-pulse idea.
+-- Walk around naturally: short high-velocity pulses are applied to YOUR root,
+-- then cleared on the next frame. Physics replication/target hits vary by game.
+-- This is an original integration, not a dependency on Infinite Yield.
+---------------------------------------------------------------------
+local WalkFlingControl = nil
+local WalkFlingRestoreNoClip = false
+local WalkFlingEpoch = 0
+local function setWalkFling(enabled, quiet)
+    enabled = enabled == true
+    if enabled == State.WalkFling then return true end
+    if enabled and (State.Flinging or State.Fly) then
+        if not quiet then notify("Fling", "Disable Fly or finish Fling & Return first") end
+        if WalkFlingControl then WalkFlingControl:Set(false, false) end
+        return false
+    end
+    WalkFlingEpoch += 1
+    local epoch = WalkFlingEpoch
+    State.WalkFling = enabled
+    if not enabled then
+        -- Preserve a preexisting user-enabled NoClip.
+        if not WalkFlingRestoreNoClip and State.NoClip then setNoClip(false) end
+        suspendAntiFling(false)
+        local root = rootPart()
+        if root then
+            pcall(function()
+                root.AssemblyAngularVelocity = Vector3.zero
+                root.AssemblyLinearVelocity = Vector3.zero
+            end)
+        end
+        if WalkFlingControl then WalkFlingControl:Set(false, false) end
+        if not quiet then notify("Fling", "WalkFling OFF; physics restored") end
+        return true
+    end
+    local char = character()
+    local root = rootPart()
+    local hum = humanoid()
+    if not char or not root or root.Anchored or not hum or hum.Health <= 0 then
+        State.WalkFling = false
+        if WalkFlingControl then WalkFlingControl:Set(false, false) end
+        if not quiet then notify("Fling", "Your character must be alive and unanchored") end
+        return false
+    end
+    WalkFlingRestoreNoClip = State.NoClip
+    if not State.NoClip then setNoClip(true) end
+    suspendAntiFling(true)
+    if not quiet then notify("Fling", "WalkFling ON: walk into players; no visible spin") end
+    task.spawn(function()
+        local phase = 1
+        local function live()
+            return State.Running and State.WalkFling and WalkFlingEpoch == epoch
+                and character() == char and root.Parent and not root.Anchored
+                and hum.Parent and hum.Health > 0 and not State.Fly and not State.Flinging
+        end
+        while live() do
+            RunService.Heartbeat:Wait()
+            if not live() then break end
+            local velocity = root.AssemblyLinearVelocity
+            -- Infinite Yield's approach: a brief massive velocity, then restore.
+            root.AssemblyLinearVelocity = velocity * 10000 + Vector3.new(0, 10000, 0)
+            RunService.RenderStepped:Wait()
+            if not live() then break end
+            root.AssemblyLinearVelocity = velocity
+            RunService.Stepped:Wait()
+            if not live() then break end
+            phase = -phase
+            root.AssemblyLinearVelocity = velocity + Vector3.new(0, phase * 0.1, 0)
+        end
+        if WalkFlingEpoch == epoch and State.WalkFling then
+            setWalkFling(false, true)
+        end
+    end)
+    return true
+end
+
+---------------------------------------------------------------------
+-- FLING & RETURN v3.4 | WALKFLING-STYLE NO-SPIN CONTACT PULSES
 -- Physical contact is client-initiated and game/server dependent.
 -- The target position follows live replicated movement; spin is not success.
 ---------------------------------------------------------------------
@@ -1533,6 +1652,9 @@ local function flingSelectedPlayer()
     if not State.Running or State.Flinging then
         return notify("Fling", "Another fling is active")
     end
+    if State.WalkFling then
+        return notify("Fling", "Turn off WalkFling before using Fling & Return")
+    end
     local player = State.SelectedPlayer and getPlayer(State.SelectedPlayer)
     if not player or player == LocalPlayer then
         return notify("Fling", "Select an available player")
@@ -1563,8 +1685,9 @@ local function flingSelectedPlayer()
     State.CancelFling = false
     suspendAntiFling(true)
     if savedFlying then setFly(false) end
-    if savedNoClip then setNoClip(false) end
-    notify("Fling", string.format("Quick contact: %s | %.1fs max", player.Name, duration))
+    -- WalkFling pulses work with the same short-lived NoClip used in IY.
+    if not savedNoClip then setNoClip(true) end
+    notify("Fling", string.format("WalkFling-style contact: %s | %.1fs max", player.Name, duration))
 
     task.spawn(function()
         local spinMover, moveMover
@@ -1621,7 +1744,7 @@ local function flingSelectedPlayer()
             ActiveFlingRestore = nil
             suspendAntiFling(false)
             if State.Running and character() == mine then
-                if savedNoClip then setNoClip(true) end
+                setNoClip(savedNoClip)
                 if savedFlying then setFly(true) end
             end
         end
@@ -1665,19 +1788,9 @@ local function flingSelectedPlayer()
                     part.CanCollide = true
                 end
             end
-            spinMover = Instance.new("BodyAngularVelocity")
-            spinMover.Name = "SALTY_QuickContactSpin"
-            spinMover.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
-            spinMover.P = 1e8
-            spinMover.AngularVelocity = Vector3.new(8500, 8800, 7900)
-            spinMover.Parent = myRoot
-
-            moveMover = Instance.new("BodyVelocity")
-            moveMover.Name = "SALTY_QuickContactMove"
-            moveMover.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-            moveMover.P = 18000
-            moveMover.Velocity = Vector3.zero
-            moveMover.Parent = myRoot
+            -- No BodyAngularVelocity and no spin: a momentary replicated
+            -- velocity impulse is inserted and then cleared each physics cycle.
+            myRoot.AssemblyAngularVelocity = Vector3.zero
 
             local started = os.clock()
             local frame, lastReaction = 0, 0
@@ -1740,14 +1853,22 @@ local function flingSelectedPlayer()
                 frame = frame + 1
                 -- Keep contact centered on a torso while applying strong angular
                 -- force. The old 330-stud/s sideways push threw US out of range.
-                myRoot.CFrame = CFrame.new(goal) * CFrame.Angles(0, (lane - 1) * 0.23, 0)
-                local burstDirection = forward + side * (lane % 2 == 0 and 0.3 or -0.3)
-                burstDirection = burstDirection.Unit
-                local impact = burstDirection * (175 + (lane % 3) * 26)
-                    + Vector3.new(0, 95, 0)
-                moveMover.Velocity = impact
-                myRoot.AssemblyLinearVelocity = impact
-                myRoot.AssemblyAngularVelocity = Vector3.new(8500, 8800, 7900)
+                myRoot.CFrame = CFrame.new(goal) * savedCF.Rotation
+                local frameVelocity = myRoot.AssemblyLinearVelocity
+                myRoot.AssemblyAngularVelocity = Vector3.zero
+                myRoot.AssemblyLinearVelocity =
+                    frameVelocity * 10000 + Vector3.new(0, 10000, 0)
+                -- Restore on the next rendering frame, then add a tiny
+                -- alternating vertical velocity (IY WalkFling principle).
+                RunService.RenderStepped:Wait()
+                if ended or State.CancelFling or not State.Running
+                    or character() ~= mine or not myRoot.Parent then break end
+                myRoot.AssemblyLinearVelocity = frameVelocity
+                RunService.Stepped:Wait()
+                if ended or State.CancelFling or not State.Running
+                    or character() ~= mine or not myRoot.Parent then break end
+                myRoot.AssemblyLinearVelocity = frameVelocity
+                    + Vector3.new(0, frame % 2 == 0 and 0.1 or -0.1, 0)
                 if body.CanCollide then contactSeen = true end
                 if (myRoot.Position - theirRoot.Position).Magnitude < 3 then
                     closeFrames = closeFrames + 1
@@ -1763,8 +1884,7 @@ local function flingSelectedPlayer()
                     result = "Large target movement observed; server outcome unconfirmed"
                     break
                 end
-                -- Limit runtime to actual physics frames; no extra polling loop.
-                RunService.Heartbeat:Wait()
+                -- RenderStepped/Stepped waits above already pace the pulses.
             end
             if not motionReacted and closeFrames == 0 then
                 result = "Could not sustain close contact; check the game's collision rules"
@@ -2764,6 +2884,7 @@ local BindAction, BindKey = "Dash", Store.bindings.Dash
 local function panicStop()
     -- Stop active actions and restore camera / collisions in a safe order.
     State.CancelFling = true
+    if State.WalkFling then setWalkFling(false, true) end
     if ActiveFlingRestore then pcall(ActiveFlingRestore) end
     if State.Freecam then stopFreecam(true) end
     if State.Spectating then stopSpectate(true) end
@@ -3202,8 +3323,19 @@ ServerTab:Paragraph({
 })
 
 ---------------------------------------------------------------------
--- FLING TAB v2.9: short contact bursts, predictive tracking and cancel.
+-- FLING TAB v3.4: Infinite Yield-style WalkFling and targeted return.
 ---------------------------------------------------------------------
+FlingTab:Paragraph({
+    Title = "WalkFling • No-Spin Physics",
+    Desc = "Inspired by Infinite Yield's WalkFling: velocity pulses while you walk into targets, with no visual spinning. Depends on server physics and network ownership. Toggle OFF to restore normal controls.",
+})
+WalkFlingControl = FlingTab:Toggle({
+    Title = "WalkFling (Touch Fling)",
+    Desc = "Walk into players while enabled. No-spin, separate from targeted Fling & Return.",
+    Value = false,
+    Callback = function(v) setWalkFling(v) end,
+})
+FlingTab:Section({Title = "Targeted WalkFling + Return", Icon = "target"})
 local FlingPlayerDropdown = FlingTab:Dropdown({
     Title = "Target Player",
     Desc = "Nickname (@Username) • automatically updates",
@@ -3240,7 +3372,7 @@ FlingTab:Slider({
 })
 FlingTab:Button({
     Title = "Fling & Return",
-    Desc = "Fast moving-target contact with short lead, impulse bursts and automatic return.",
+    Desc = "Teleport to selected target, run no-spin WalkFling-style velocity pulses, then return automatically.",
     Icon = "zap",
     Callback = flingSelectedPlayer,
 })
@@ -3449,6 +3581,18 @@ local SkyboxOrder = {
     "Among Us",
     "Skeleton",
     "Dark Meme",
+    "Crimson Veil",
+    "Obsidian Eclipse",
+    "Lavender Dream",
+    "Rose Quartz",
+    "Glacial Dawn",
+    "Teal Nebula",
+    "Amber Haze",
+    "Coral Afterglow",
+    "Noir Violet",
+    "Neon Sakura",
+    "Moonlit Cabin",
+    "Electric Dusk",
 }
 local function skyboxIndex(name)
     for index, item in ipairs(SkyboxOrder) do
@@ -3589,6 +3733,7 @@ VisualsTab:Button({
             end
         end
         local sky = currentSky()
+        clearSkyTone()
         sky.SkyboxBk = CustomSky.Bk
         sky.SkyboxDn = CustomSky.Dn
         sky.SkyboxFt = CustomSky.Ft
@@ -3893,7 +4038,7 @@ ConfigTab:Paragraph({
 ---------------------------------------------------------------------
 SettingsTab:Paragraph({
     Title = "Controls",
-    Desc = "F = Fly toggle\nX = Dash, V = Freecam, G = Air Walk, B = Spectate\nBackSlash = Panic\nWASD = Move\nSpace = Up during Fly\nInfinite Jump = press jump again midair (keyboard/touch/controller)\nCtrl = Down\nCtrl + Click = Teleport\nFling & Return = Fling tab\nHold RMB = Aim Assist\nQ = Toggle Aim Lock\nCombat & ESP tabs = player assistance and overlays\nTeleport, Fling and Spectate player lists auto-refresh on join/leave/name changes\nRightShift = Open/close hub",
+    Desc = "F = Fly toggle\nX = Dash, V = Freecam, G = Air Walk, B = Spectate\nBackSlash = Panic\nWASD = Move\nSpace = Up during Fly\nInfinite Jump = press jump again midair (keyboard/touch/controller)\nCtrl = Down\nCtrl + Click = Teleport\nWalkFling (no-spin touch mode) and Fling & Return = Fling tab\nHold RMB = Aim Assist\nQ = Toggle Aim Lock\nCombat & ESP tabs = player assistance and overlays\nTeleport, Fling and Spectate player lists auto-refresh on join/leave/name changes\nRightShift = Open/close hub",
 })
 SettingsTab:Paragraph({
     Title = "Visuals",
@@ -3904,6 +4049,7 @@ SettingsTab:Paragraph({
 ---------------------------------------------------------------------
 bind(LocalPlayer.CharacterAdded:Connect(function()
     State.CancelFling = true
+    if State.WalkFling then setWalkFling(false, true) end
     setAirWalk(false)
     uiSet("AirWalk", false, false)
     if State.Freecam then
@@ -3941,6 +4087,7 @@ local function cleanup()
     State.ServerHopBusy = false
     HopGeneration = HopGeneration + 1
     State.CancelFling = true
+    if State.WalkFling then setWalkFling(false, true) end
     if ActiveFlingRestore then
         pcall(ActiveFlingRestore)
     end
@@ -4012,7 +4159,7 @@ pcall(function()
     end)
 end)
 notify(
-    "SALTY Player Hub v3.3.2",
+    "SALTY Player Hub v3.4.0",
     "Obsidian ready • Air Walk • Dash • Spectate • Freecam • Anti-Void • Waypoints"
 )
 end -- initializeObsidian: compiler register boundary
