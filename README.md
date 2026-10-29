@@ -1,4 +1,4 @@
-# SALTY Player Hub v3.7.0 (Obsidian Edition)
+# SALTY Player Hub v3.7.1 (Obsidian Edition)
 
 A single-file Roblox Lua client hub based on VantaUI.
 
@@ -8,16 +8,20 @@ A single-file Roblox Lua client hub based on VantaUI.
 loadstring(game:HttpGet("https://raw.githubusercontent.com/MrRos3/SaltyP1/main/loader.lua?fresh=" .. tostring(DateTime.now().UnixTimestampMillis), true))()
 ```
 
-**Use the loader above** instead of the old static `main.lua` URL. It cache-busts the GitHub source, verifies the Spectate and WalkFling controls are in the downloaded script, and reports Luau compilation and startup errors in the executor console. The window title should show `SALTY Player Hub v3.7.0`.
+**Use the loader above** instead of the old static `main.lua` URL. It cache-busts the GitHub source, verifies the Spectate and WalkFling controls are in the downloaded script, and reports Luau compilation and startup errors in the executor console. The window title should show `SALTY Player Hub v3.7.1`.
 
 **Visibility check:** `Camera` tab → `Spectate Player` (nickname and @username dropdown) and `Fling` tab → `WalkFling (Touch Fling)` toggle. The two UI sections now initialize before other tabs' feature controls.
 
 The hub fetches VantaUI from [MrRos3/VantaUI](https://github.com/MrRos3/VantaUI). Your environment must support `loadstring` and `game:HttpGet`. This is an independent client script, not a Roblox Studio plugin.
 
-## Lean performance update (v3.7.0)
+## GUI particles restored (v3.7.1)
+
+The full crimson ambient effect is back, as requested. The performance changes to ESP/Spectate and the removal of Freecam/Waypoints remain. You do not need to enable any extra GUI option. Note that live particle animation can still carry a small GPU/CPU cost.
+
+## Lean performance update (v3.7.1)
 
 - **Removed entirely:** the Waypoints tab, related waypoint storage/management UI and code, Freecam controls and rendering, Freecam shortcut, and Freecam profile settings.
-- **Crimson wallpaper retained**, but VantaUI's 50 moving ambient particle frames are removed at startup, allowing the associated render-step connection to stop.
+- **Crimson wallpaper and particle ambience restored**: the original petal, ember, mote and glint particles remain visible. VantaUI pools 50 particles and throttles motion to 30 FPS; the underlying animation has a rendering cost, but SALTY no longer suppresses it.
 - **ESP + Chams** remains a single toggle. Native highlights follow characters smoothly; distance/name checks are staggered across 1-3 players each pass, with a lower budget under load.
 - **Spectate** keeps its searchable player dropdown and native camera following, with background camera verification limited to about eight times per second.
 - **Original Fling & Return**, separate WalkFling, Fly, Infinite Jump, Anti-Fling, skyboxes, Teleport, and profiles remain intact.
@@ -25,7 +29,7 @@ The hub fetches VantaUI from [MrRos3/VantaUI](https://github.com/MrRos3/VantaUI)
 
 These reduce script-side overhead but aren't a guarantee of zero lag. Roblox FPS depends on the game, player count, and device.
 
-## ESP redesign (v3.7.0)
+## ESP redesign (v3.7.1)
 
 **ESP is now one switch with built-in Chams and player name tags.** The ESP tab contains `Enable ESP + Chams` and `Highlight Color`.
 
@@ -37,7 +41,7 @@ These reduce script-side overhead but aren't a guarantee of zero lag. Roblox FPS
 
 The exact FPS improvement depends on the game and device. Live testing has not been completed.
 
-## Performance overhaul (v3.7.0)
+## Performance overhaul (v3.7.1)
 
 No performance menus or quality presets: SALTY automatically minimizes work.
 
@@ -49,7 +53,7 @@ No performance menus or quality presets: SALTY automatically minimizes work.
 
 These are source-level performance optimizations, **not measured FPS guarantees**. Live Roblox testing is still required.
 
-## Fixed in v3.7.0
+## Fixed in v3.7.1
 
 - Fixed the Luau compiler error `Out of local registers when trying to allocate profileNames: exceeded limit 200` by moving the Obsidian features and their UI into a dedicated function scope.
 - Kept Fly, Infinite Jump, Air Walk, Dash, Spectate, Freecam, Anti-Void, Fling & Return, combat assistance, player ESP, teleport, skybox controls, server hop, profiles, and waypoints.
