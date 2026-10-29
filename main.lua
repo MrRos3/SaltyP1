@@ -1,9 +1,9 @@
 -- v2.8: Adaptive / Force Override third-person camera; original anti-fling ON, full bright OFF.
--- SALTY Player Hub v3.6.0 OBSIDIAN EDITION: Movement, Camera, Waypoints, Keybinds & Profiles.
+-- SALTY Player Hub v3.7.0 OBSIDIAN EDITION: Movement, Camera, Keybinds & Profiles.
 -- Custom SALTY Full Bright (OFF), Anti-Fling (ON).
 -- Optimized cached part tracking; preserves v2.5 movement and ESP improvements.
 -- Untested in live Roblox. Collisions are governed by server and network ownership.
--- SALTY Player Hub v3.6.0 | OBSIDIAN EDITION
+-- SALTY Player Hub v3.7.0 | OBSIDIAN EDITION
 -- Universal player-only script:
 -- Fly, infinite jump, movement, fling, combat assistance, player ESP, skyboxes and time.
 if getgenv and getgenv().__SALTY_PLAYER_CLEANUP then
@@ -18,7 +18,7 @@ if getgenv and getgenv().__SALTY_PLAYER_WINDOW then
 end
 local ENV = getgenv and getgenv() or _G
 ENV.__SALTY_PLAYER_VERSION = "3.4.1"
-warn("[SALTY Player Hub v3.6.0] Updated source fetched; initializing controls...")
+warn("[SALTY Player Hub v3.7.0] Updated source fetched; initializing controls...")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -33,10 +33,10 @@ local VantaUI = loadstring(game:HttpGet(
 ))()
 VantaUI:SetTheme("Salty Special")
 local Window = VantaUI:CreateWindow({
-    Title = "SALTY Player Hub v3.6.0 | OBSIDIAN",
+    Title = "SALTY Player Hub v3.7.0 | OBSIDIAN",
     Icon = VantaUI.Brand.Image,
     Theme = "Salty Special",
-    StartupTab = "Camera", -- open on the Spectate dropdown to make v3.6.0 easy to verify
+    StartupTab = "Camera", -- open on the Spectate dropdown to make v3.7.0 easy to verify
     HideSearchBar = true,
     ToggleKey = Enum.KeyCode.RightShift,
     Branding = {
@@ -49,7 +49,7 @@ local Window = VantaUI:CreateWindow({
         Intro = false,
     },
     OpenButton = {
-        Title = "Open SALTY Obsidian Hub v3.6.0",
+        Title = "Open SALTY Obsidian Hub v3.7.0",
         Icon = VantaUI.Brand.Image,
         Enabled = true,
         Draggable = true,
@@ -66,6 +66,14 @@ local Window = VantaUI:CreateWindow({
 })
 -- Keep a handle to this window for clean replacements on the next execution.
 ENV.__SALTY_PLAYER_WINDOW = Window
+-- Keep VantaUI wallpaper but disable 50 moving background particles.
+-- The upstream ambient connection disconnects after its overlay is removed.
+pcall(function()
+    local main = Window.UIElements and Window.UIElements.Main
+    local bg = main and main:FindFirstChild("Background")
+    local ambient = bg and bg:FindFirstChild("Crimson01Ambient")
+    if ambient then ambient:Destroy() end
+end)
 local State = {
     Running = true,
     Fly = false,
@@ -80,9 +88,6 @@ local State = {
     AntiVoidOffset = 35,
     Spectating = false,
     SpectateTarget = nil, -- independent username for Spectate (not Teleport/Fling)
-    Freecam = false,
-    FreecamSpeed = 35,
-    FreecamFOV = 70,
     Speed = false,
     WalkSpeed = 32,
     ForceThirdPerson = false,
@@ -135,7 +140,7 @@ local NotificationIcon = {
     Time = "clock", ["Anti-AFK"] = "coffee", Players = "users",
     ["Custom Skybox"] = "image-plus", Combat = "crosshair", ESP = "scan-eye",
     Protection = "shield", ["Full Bright"] = "sun", Server = "server",
-    Movement = "footprints", Dash = "zap", Camera = "video", Waypoints = "map-pin",
+    Movement = "footprints", Dash = "zap", Camera = "video",
     Profiles = "save", Keybinds = "keyboard", Obsidian = "gem",
 }
 local function notify(title, text)
@@ -1976,6 +1981,8 @@ local EspGui, FovCircle
 local AimRenderName = "SALTY_Combat_Aim_" .. tostring(LocalPlayer.UserId)
 local AimBound = false
 local EspTime = 0
+local EspCursor = 1
+local EspFrameDt = 1 / 60
 local FovTime = 0
 local AIM_SCAN_INTERVAL = 0.24 -- fewer candidate scans per second
 local CachedAimPlayer, CachedAimPart
@@ -2406,14 +2413,21 @@ bind(RunService.Heartbeat:Connect(function(dt)
         FovTime = 0
     end
     if not ESP.Enabled then return end
-    -- Chams and labels track motion natively; update lightweight state
-    -- 4 times per second, rather than repainting geometry every frame.
+    local total = #PlayerRoster
+    if total == 0 then return end
+    EspFrameDt = EspFrameDt * 0.96 + math.min(dt, 0.1) * 0.04
     EspTime += dt
-    if EspTime < 0.25 then return end
+    -- Native Highlight/Name positions remain smooth; stagger status checks.
+    local underLoad = EspFrameDt > 1 / 42
+    if EspTime < (underLoad and 0.16 or 0.10) then return end
     EspTime = 0
     local ownRoot = rootPart()
-    for _, player in ipairs(PlayerRoster) do
-        updateEspView(player, ownRoot)
+    local budget = underLoad and 1 or (total > 24 and 2 or 3)
+    for _ = 1, math.min(budget, total) do
+        if EspCursor > total then EspCursor = 1 end
+        local player = PlayerRoster[EspCursor]
+        EspCursor += 1
+        if player then updateEspView(player, ownRoot) end
     end
 end))
 
@@ -2486,7 +2500,7 @@ local function setAirWalk(enabled)
 end
 
 local function dash()
-    if not State.Running or State.Flinging or State.Fly or State.Freecam or State.Spectating then
+    if not State.Running or State.Flinging or State.Fly or State.Spectating then
         return notify("Dash", "Dash is unavailable during Fly, Fling or camera modes")
     end
     local root, hum = characterReady()
@@ -2549,7 +2563,6 @@ local function stopSpectate(quiet)
     if ProfileControls then uiSet("Spectate", false, false) end
     if not quiet then notify("Camera", "Spectate stopped") end
 end
-local setFreecam -- forward declaration for camera mode exclusivity
 local function startSpectate()
     if State.Flinging then return notify("Camera", "Wait until Fling has finished") end
     local player = State.SpectateTarget and getPlayer(State.SpectateTarget)
@@ -2557,10 +2570,6 @@ local function startSpectate()
     local camera = Workspace.CurrentCamera
     if not targetHum or targetHum.Health <= 0 or not camera then
         return notify("Camera", "Choose a player with a living character")
-    end
-    if State.Freecam and setFreecam then
-        setFreecam(false)
-        if ProfileControls then uiSet("Freecam", false, false) end
     end
     if State.ForceThirdPerson then
         setForceThirdPerson(false)
@@ -2605,8 +2614,12 @@ end
 bind(Players.PlayerRemoving:Connect(function(player)
     if State.Spectating and SpectatePlayer == player then stopSpectate() end
 end))
-bind(RunService.Heartbeat:Connect(function()
+local SpectateTick = 0
+bind(RunService.Heartbeat:Connect(function(dt)
     if not State.Running or not State.Spectating then return end
+    SpectateTick += dt
+    if SpectateTick < 0.125 then return end
+    SpectateTick = 0
     local p = SpectatePlayer
     if not p or p.Parent ~= Players then stopSpectate(); return end
     local currentHum = p.Character and p.Character:FindFirstChildOfClass("Humanoid")
@@ -2624,124 +2637,12 @@ bind(RunService.Heartbeat:Connect(function()
     if cam.CameraType ~= Enum.CameraType.Custom then cam.CameraType = Enum.CameraType.Custom end
 end))
 
--- Freecam: inertial navigation (WASD/Space/Ctrl), RMB-look, Shift boost.
-local FreecamRenderName = "SALTY_Obsidian_Freecam_" .. tostring(LocalPlayer.UserId)
-local FreecamCamera, FreecamSaved, FreecamLocation, FreecamYaw, FreecamPitch
-local FreecamVelocity = Vector3.zero
-local FreecamBound = false
-local function stopFreecam(quiet)
-    State.Freecam = false
-    if FreecamBound then
-        RunService:UnbindFromRenderStep(FreecamRenderName)
-        FreecamBound = false
-    end
-    if FreecamSaved and FreecamCamera and FreecamCamera.Parent then
-        local saved, cam = FreecamSaved, FreecamCamera
-        pcall(function()
-            cam.CameraSubject = saved.Subject
-            cam.CameraType = saved.Type
-            cam.FieldOfView = saved.FOV
-            cam.CFrame = saved.CFrame
-            UserInputService.MouseBehavior = saved.MouseBehavior
-            UserInputService.MouseIconEnabled = saved.MouseIconEnabled
-        end)
-    end
-    FreecamSaved, FreecamCamera, FreecamLocation, FreecamYaw, FreecamPitch = nil, nil, nil, nil, nil
-    FreecamVelocity = Vector3.zero
-    if ProfileControls then uiSet("Freecam", false, false) end
-    if not quiet then notify("Camera", "Freecam stopped and camera restored") end
-end
-setFreecam = function(enabled)
-    enabled = enabled == true
-    if not enabled then stopFreecam(); return true end
-    if State.Flinging then
-        notify("Camera", "Finish the current fling before Freecam")
-        return false
-    end
-    local cam = Workspace.CurrentCamera
-    if not cam then return false end
-    if State.Freecam then return true end
-    if State.Spectating then
-        stopSpectate(true)
-        if ProfileControls then uiSet("Spectate", false, false) end
-    end
-    if State.ForceThirdPerson then
-        setForceThirdPerson(false)
-        if ProfileControls then uiSet("ThirdPerson", false, false) end
-    end
-    if Combat.Aim then
-        setCombatAim(false)
-        if ProfileControls then uiSet("AimAssist", false, false) end
-    end
-    if State.Fly then
-        setFly(false)
-        if ProfileControls then uiSet("Fly", false, false) end
-    end
-    FreecamCamera = cam
-    FreecamSaved = {
-        Type = cam.CameraType, Subject = cam.CameraSubject, CFrame = cam.CFrame,
-        FOV = cam.FieldOfView, MouseBehavior = UserInputService.MouseBehavior,
-        MouseIconEnabled = UserInputService.MouseIconEnabled,
-    }
-    FreecamLocation = cam.CFrame.Position
-    local look = cam.CFrame.LookVector
-    FreecamPitch = math.asin(math.clamp(look.Y, -0.999, 0.999))
-    FreecamYaw = math.atan2(-look.X, -look.Z)
-    FreecamVelocity = Vector3.zero
-    State.Freecam = true
-    cam.CameraType = Enum.CameraType.Scriptable
-    cam.FieldOfView = State.FreecamFOV
-    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-    if not FreecamBound then
-        FreecamBound = true
-        RunService:BindToRenderStep(FreecamRenderName, Enum.RenderPriority.Last.Value + 20, function(dt)
-            if not State.Running or not State.Freecam then return end
-            local camera = Workspace.CurrentCamera
-            if not camera then return end
-            if camera ~= FreecamCamera then
-                -- An experience can replace CurrentCamera while freecam is active.
-                FreecamCamera = camera
-            end
-            if camera.CameraType ~= Enum.CameraType.Scriptable then
-                camera.CameraType = Enum.CameraType.Scriptable
-            end
-            if UserInputService:GetFocusedTextBox() then return end
-            dt = math.clamp(dt, 0.001, 0.05)
-            if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
-                local delta = UserInputService:GetMouseDelta()
-                FreecamYaw = FreecamYaw - delta.X * 0.0026
-                FreecamPitch = math.clamp(FreecamPitch - delta.Y * 0.0026, -1.51, 1.51)
-            end
-            local rot = CFrame.fromOrientation(FreecamPitch, FreecamYaw, 0)
-            local direction = Vector3.zero
-            if UserInputService:IsKeyDown(Enum.KeyCode.W) then direction += rot.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.S) then direction -= rot.LookVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.A) then direction -= rot.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.D) then direction += rot.RightVector end
-            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then direction += Vector3.yAxis end
-            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
-                or UserInputService:IsKeyDown(Enum.KeyCode.RightControl) then direction -= Vector3.yAxis end
-            if direction.Magnitude > 0 then direction = direction.Unit end
-            local boosting = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
-                or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-            local wanted = direction * State.FreecamSpeed * (boosting and 2.8 or 1)
-            FreecamVelocity = FreecamVelocity:Lerp(wanted, math.clamp(dt * 9, 0, 1))
-            FreecamLocation += FreecamVelocity * dt
-            camera.FieldOfView = State.FreecamFOV
-            camera.CFrame = CFrame.new(FreecamLocation) * rot
-            camera.Focus = camera.CFrame + camera.CFrame.LookVector * 12
-        end)
-    end
-    notify("Camera", "Freecam ON: WASD + Space/Ctrl, RMB look, Shift boost")
-    return true
-end
-
 ---------------------------------------------------------------------
 -- OBSIDIAN SETTINGS STORE | graceful session-only mode if FS unavailable.
 ---------------------------------------------------------------------
 local StorePath = "SALTY_Player_Hub/Obsidian_v3.3.json"
-local Store = {version = 1, profiles = {}, waypoints = {}, bindings = {
-    Dash = "X", Freecam = "V", ["Air Walk"] = "G", Spectate = "B", Panic = "BackSlash",
+local Store = {version = 1, profiles = {}, bindings = {
+    Dash = "X", ["Air Walk"] = "G", Spectate = "B", Panic = "BackSlash",
 }}
 local StoreWritable = type(writefile) == "function"
 local function persistStore()
@@ -2762,7 +2663,6 @@ if type(readfile) == "function" then
             local decoded = HttpService:JSONDecode(readfile(StorePath))
             if type(decoded) == "table" and decoded.version == 1 then
                 if type(decoded.profiles) == "table" then Store.profiles = decoded.profiles end
-                if type(decoded.waypoints) == "table" then Store.waypoints = decoded.waypoints end
                 if type(decoded.bindings) == "table" then
                     for action in pairs(Store.bindings) do
                         local key = decoded.bindings[action]
@@ -2790,72 +2690,7 @@ local function validLabel(label)
     label = label:match("^%s*(.-)%s*$")
     return label
 end
-local function cfFromNumbers(raw)
-    if type(raw) ~= "table" or #raw ~= 12 then return nil end
-    for _, n in ipairs(raw) do
-        if type(n) ~= "number" or n ~= n or math.abs(n) > 1e9 then return nil end
-    end
-    local ok, cf = pcall(function() return CFrame.new(table.unpack(raw)) end)
-    return ok and cf or nil
-end
-local function cfNumbers(cf)
-    return {cf:GetComponents()}
-end
-local SelectedWaypoint, WaypointDropdown, WaypointName = nil, nil, ""
-local function waypointNames()
-    local values = {}
-    for name, raw in pairs(Store.waypoints) do
-        if type(name) == "string" and cfFromNumbers(raw) then
-            table.insert(values, name)
-        end
-    end
-    table.sort(values)
-    if #values == 0 then values[1] = "No waypoints" end
-    return values
-end
-local function refreshWaypoints()
-    local names = waypointNames()
-    if not Store.waypoints[SelectedWaypoint] then
-        SelectedWaypoint = names[1] ~= "No waypoints" and names[1] or nil
-    end
-    if WaypointDropdown then
-        WaypointDropdown.Value = SelectedWaypoint or "No waypoints"
-        WaypointDropdown:Refresh(names)
-    end
-end
-local function saveWaypoint()
-    local root = rootPart()
-    if not root then return notify("Waypoints", "Character not ready") end
-    local label = validLabel(WaypointName)
-    if label == "" then label = "Waypoint " .. tostring(#waypointNames()) end
-    local count = 0
-    for _ in pairs(Store.waypoints) do count += 1 end
-    if not Store.waypoints[label] and count >= 40 then
-        return notify("Waypoints", "Maximum 40 waypoints; delete one first")
-    end
-    Store.waypoints[label] = cfNumbers(root.CFrame)
-    SelectedWaypoint = label
-    refreshWaypoints()
-    notify("Waypoints", "Saved " .. label .. (persistStore() and " • on disk" or " • this session"))
-end
-local function gotoWaypoint()
-    local cf = SelectedWaypoint and cfFromNumbers(Store.waypoints[SelectedWaypoint])
-    if not cf then return notify("Waypoints", "Select a saved waypoint") end
-    if teleport(cf + Vector3.new(0, 2, 0)) then
-        notify("Waypoints", "Teleported to " .. SelectedWaypoint)
-    end
-end
-local function deleteWaypoint()
-    if not SelectedWaypoint or not Store.waypoints[SelectedWaypoint] then return end
-    local label = SelectedWaypoint
-    Store.waypoints[label] = nil
-    SelectedWaypoint = nil
-    refreshWaypoints()
-    persistStore()
-    notify("Waypoints", "Deleted " .. label)
-end
-
-local BoundActions = {"Dash", "Freecam", "Air Walk", "Spectate", "Panic"}
+local BoundActions = {"Dash", "Air Walk", "Spectate", "Panic"}
 local BindableKeys = {"None", "B", "G", "H", "J", "K", "L", "M", "N", "P", "T", "V", "X", "Y", "Z", "BackSlash"}
 local BindAction, BindKey = "Dash", Store.bindings.Dash
 local function panicStop()
@@ -2863,7 +2698,6 @@ local function panicStop()
     State.CancelFling = true
     if State.WalkFling then setWalkFling(false, true) end
     if ActiveFlingRestore then pcall(ActiveFlingRestore) end
-    if State.Freecam then stopFreecam(true) end
     if State.Spectating then stopSpectate(true) end
     setAirWalk(false)
     setFly(false)
@@ -2885,7 +2719,7 @@ local function panicStop()
     setUnlockMouse(false)
     -- Update the controls users can see (no callback re-entry).
     for _, key in ipairs({"Fly", "InfiniteJump", "Speed", "NoClip", "AirWalk", "AntiVoid",
-        "Spectate", "Freecam", "ThirdPerson", "UnlockMouse", "AimAssist", "FullBright",
+        "Spectate", "ThirdPerson", "UnlockMouse", "AimAssist", "FullBright",
         "ESP", "AutoUseTool", "ShowFOV"}) do
         uiSet(key, false, false)
     end
@@ -2893,9 +2727,6 @@ local function panicStop()
 end
 local function activateBinding(action)
     if action == "Dash" then dash()
-    elseif action == "Freecam" then
-        setFreecam(not State.Freecam)
-        uiSet("Freecam", State.Freecam, false)
     elseif action == "Air Walk" then
         local enabled = setAirWalk(not State.AirWalk)
         if enabled ~= false then uiSet("AirWalk", State.AirWalk, false) end
@@ -2932,7 +2763,7 @@ end
 
 local ProfileKeys = {"FlySpeed", "InfiniteJump", "Speed", "WalkSpeed", "NoClip", "AntiFling",
     "ThirdPersonDistance", "AirWalkSize", "DashPower", "DashCooldown", "AntiVoid", "AntiVoidOffset",
-    "FreecamSpeed", "FreecamFOV", "FullBright"}
+    "FullBright"}
 local function captureProfile()
     local snapshot = {}
     for _, key in ipairs(ProfileKeys) do snapshot[key] = State[key] end
@@ -2979,7 +2810,7 @@ local function loadProfile()
     local limits = {
         FlySpeed={10,300}, WalkSpeed={16,250}, ThirdPersonDistance={6,25},
         AirWalkSize={6,20}, DashPower={35,180}, DashCooldown={0.4,4},
-        AntiVoidOffset={15,100}, FreecamSpeed={5,140}, FreecamFOV={40,100},
+        AntiVoidOffset={15,100},
     }
     for _, key in ipairs(ProfileKeys) do
         local value = snapshot[key]
@@ -3030,7 +2861,6 @@ end
 ---------------------------------------------------------------------
 local MovementTab = Window:Tab({Title = "Movement", Icon = "footprints"})
 local CameraTab = Window:Tab({Title = "Camera", Icon = "video"})
-local WaypointsTab = Window:Tab({Title = "Waypoints", Icon = "map-pin"})
 local ConfigTab = Window:Tab({Title = "Obsidian", Icon = "gem"})
 local PlayerTab = Window:Tab({
     Title = "Player",
@@ -3068,7 +2898,7 @@ local SettingsTab = Window:Tab({
 -- section's runtime error cannot hide the Spectate dropdown or WalkFling toggle.
 ---------------------------------------------------------------------
 CameraTab:Paragraph({
-    Title = "SALTY v3.6.0 • Camera Suite",
+    Title = "SALTY v3.7.0 • Camera Suite",
     Desc = "NEW: Spectate Player dropdown below, independent from Fling/Teleport. Search nickname or @username. You can change targets live.",
 })
 CameraTab:Section({Title = "Spectate", Icon = "eye"})
@@ -3099,7 +2929,7 @@ end})
 -- FLING TAB: optional WalkFling toggle and restored original target fling.
 ---------------------------------------------------------------------
 FlingTab:Paragraph({
-    Title = "SALTY v3.6.0 • WalkFling / No-Spin Physics",
+    Title = "SALTY v3.7.0 • WalkFling / No-Spin Physics",
     Desc = "Inspired by Infinite Yield's WalkFling: velocity pulses while you walk into targets, with no visual spinning. Depends on server physics and network ownership. Toggle OFF to restore normal controls.",
 })
 WalkFlingControl = FlingTab:Toggle({
@@ -3176,7 +3006,6 @@ ProfileControls.Fly = PlayerTab:Toggle({
                 setAirWalk(false)
                 uiSet("AirWalk", false, false)
             end
-            if State.Freecam then stopFreecam(true) end
             if State.Spectating then stopSpectate(true) end
         end
         setFly(value)
@@ -3230,7 +3059,6 @@ ProfileControls.ThirdPerson = PlayerTab:Toggle({
     Value = false,
     Callback = function(value)
         if value then
-            if State.Freecam then stopFreecam(true) end
             if State.Spectating then stopSpectate(true) end
         end
         setForceThirdPerson(value)
@@ -3568,7 +3396,7 @@ local function randomSkybox()
     applySkybox(chosen)
 end
 VisualsTab:Paragraph({
-    Title = "SALTY v3.6.0 • 32 Skybox Choices",
+    Title = "SALTY v3.7.0 • 32 Skybox Choices",
     Desc = "12 NEW cinematic sky looks include Crimson Veil, Obsidian Eclipse, Lavender Dream, Neon Sakura and more. Open Skybox Preset below to see them all.",
 })
 VisualsTab:Section({Title = "Skybox", Icon = "image"})
@@ -3847,52 +3675,11 @@ MovementTab:Button({
     end,
 })
 
-CameraTab:Section({Title = "Freecam", Icon = "video"})
-ProfileControls.Freecam = CameraTab:Toggle({
-    Title = "Freecam", Desc = "WASD move • Space/Ctrl vertical • RMB look • Shift boost. Default shortcut: V.",
-    Value = false,
-    Callback = function(v)
-        local enabled = setFreecam(v)
-        if v and enabled == false then uiSet("Freecam", false, false) end
-    end,
-})
-ProfileControls.FreecamSpeed = CameraTab:Slider({
-    Title = "Freecam Speed", Value = {Min = 5, Max = 140, Default = 35}, Step = 5,
-    Callback = function(v) State.FreecamSpeed = math.clamp(tonumber(v) or 35, 5, 140) end,
-})
-ProfileControls.FreecamFOV = CameraTab:Slider({
-    Title = "Freecam FOV", Value = {Min = 40, Max = 100, Default = 70}, Step = 2,
-    Callback = function(v) State.FreecamFOV = math.clamp(tonumber(v) or 70, 40, 100) end,
-})
 CameraTab:Button({Title = "Restore My Camera", Icon = "rotate-ccw", Callback = function()
-    if State.Freecam then stopFreecam(true) end
     if State.Spectating then stopSpectate(true) end
-    uiSet("Freecam", false, false)
     uiSet("Spectate", false, false)
     notify("Camera", "Original camera restored")
 end})
-
-WaypointsTab:Paragraph({
-    Title = "OBSIDIAN • Saved Places",
-    Desc = "Name and save up to 40 map positions. Persists across sessions if readfile/writefile are available.",
-})
-WaypointsTab:Section({Title = "Your Locations", Icon = "map-pin"})
-WaypointsTab:Input({Title = "Waypoint Name", Placeholder = "e.g. Rooftop / Spawn / Home", Callback = function(v)
-    WaypointName = tostring(v or "")
-end})
-WaypointsTab:Button({Title = "Save Current Position", Icon = "bookmark-plus", Callback = saveWaypoint})
-WaypointDropdown = WaypointsTab:Dropdown({
-    Title = "Saved Waypoints", Values = waypointNames(),
-    Value = SelectedWaypoint or "No waypoints", SearchBarEnabled = true, MenuWidth = 270,
-    Callback = function(v)
-        local chosen = tostring(dropdownValue(v) or "")
-        if Store.waypoints[chosen] then SelectedWaypoint = chosen end
-    end,
-})
-WaypointsTab:Button({Title = "Teleport to Waypoint", Icon = "navigation", Callback = gotoWaypoint})
-WaypointsTab:Button({Title = "Delete Selected Waypoint", Icon = "trash-2", Callback = deleteWaypoint})
-WaypointsTab:Button({Title = "Refresh Waypoints", Icon = "refresh-cw", Callback = refreshWaypoints})
-refreshWaypoints()
 
 ConfigTab:Paragraph({
     Title = "OBSIDIAN • Control Center",
@@ -3951,7 +3738,7 @@ ConfigTab:Button({Title = "Refresh Profiles", Icon = "refresh-cw", Callback = re
 refreshProfiles()
 ConfigTab:Paragraph({
     Title = "Storage Notice",
-    Desc = "Profiles and waypoints use an executor-local JSON file where supported. Without file APIs, settings remain available only for the current hub session. Profiles do not auto-start Fly, Freecam, Fling or Spectate.",
+    Desc = "Profiles use an executor-local JSON file where supported. Without file APIs, settings remain for this session. Profiles do not auto-start Fly, Fling or Spectate.",
 })
 
 ---------------------------------------------------------------------
@@ -3959,7 +3746,7 @@ ConfigTab:Paragraph({
 ---------------------------------------------------------------------
 SettingsTab:Paragraph({
     Title = "Controls",
-    Desc = "F = Fly toggle\nX = Dash, V = Freecam, G = Air Walk, B = Spectate\nBackSlash = Panic\nWASD = Move\nSpace = Up during Fly\nInfinite Jump = press jump again midair (keyboard/touch/controller)\nCtrl = Down\nCtrl + Click = Teleport\nWalkFling (no-spin touch mode) and Fling & Return = Fling tab\nHold RMB = Aim Assist\nQ = Toggle Aim Lock\nCombat & ESP tabs = player assistance and overlays\nTeleport, Fling and Spectate player lists auto-refresh on join/leave/name changes\nRightShift = Open/close hub",
+    Desc = "F = Fly toggle\nX = Dash, G = Air Walk, B = Spectate\nBackSlash = Panic\nWASD = Move\nSpace = Up during Fly\nInfinite Jump = press jump again midair (keyboard/touch/controller)\nCtrl = Down\nCtrl + Click = Teleport\nWalkFling (no-spin touch mode) and Fling & Return = Fling tab\nHold RMB = Aim Assist\nQ = Toggle Aim Lock\nCombat & ESP tabs = player assistance and overlays\nTeleport, Fling and Spectate player lists auto-refresh on join/leave/name changes\nRightShift = Open/close hub",
 })
 SettingsTab:Paragraph({
     Title = "Visuals",
@@ -3973,10 +3760,6 @@ bind(LocalPlayer.CharacterAdded:Connect(function()
     if State.WalkFling then setWalkFling(false, true) end
     setAirWalk(false)
     uiSet("AirWalk", false, false)
-    if State.Freecam then
-        stopFreecam(true)
-        uiSet("Freecam", false, false)
-    end
     if State.Spectating then
         stopSpectate(true)
         uiSet("Spectate", false, false)
@@ -4013,7 +3796,6 @@ local function cleanup()
         pcall(ActiveFlingRestore)
     end
     setAirWalk(false)
-    if State.Freecam then stopFreecam(true) end
     if State.Spectating then stopSpectate(true) end
     State.AntiVoid = false
     State.Fly = false
@@ -4080,8 +3862,8 @@ pcall(function()
     end)
 end)
 notify(
-    "SALTY Player Hub v3.6.0",
-    "Obsidian ready • Air Walk • Dash • Spectate • Freecam • Anti-Void • Waypoints"
+    "SALTY Player Hub v3.7.0",
+    "Obsidian ready • Air Walk • Dash • Spectate • ESP • Anti-Void"
 )
 end -- initializeObsidian: compiler register boundary
 
