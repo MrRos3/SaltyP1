@@ -1,9 +1,9 @@
 -- v2.8: Adaptive / Force Override third-person camera; original anti-fling ON, full bright OFF.
--- SALTY Player Hub v3.7.1 OBSIDIAN EDITION: Movement, Camera, Keybinds & Profiles.
+-- SALTY Player Hub v3.7.2 OBSIDIAN EDITION: Movement, Camera, Keybinds & Profiles.
 -- Custom SALTY Full Bright (OFF), Anti-Fling (ON).
 -- Optimized cached part tracking; preserves v2.5 movement and ESP improvements.
 -- Untested in live Roblox. Collisions are governed by server and network ownership.
--- SALTY Player Hub v3.7.1 | OBSIDIAN EDITION
+-- SALTY Player Hub v3.7.2 | OBSIDIAN EDITION
 -- Universal player-only script:
 -- Fly, infinite jump, movement, fling, combat assistance, player ESP, skyboxes and time.
 if getgenv and getgenv().__SALTY_PLAYER_CLEANUP then
@@ -18,7 +18,7 @@ if getgenv and getgenv().__SALTY_PLAYER_WINDOW then
 end
 local ENV = getgenv and getgenv() or _G
 ENV.__SALTY_PLAYER_VERSION = "3.4.1"
-warn("[SALTY Player Hub v3.7.1] Updated source fetched; initializing controls...")
+warn("[SALTY Player Hub v3.7.2] Updated source fetched; initializing controls...")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -33,10 +33,10 @@ local VantaUI = loadstring(game:HttpGet(
 ))()
 VantaUI:SetTheme("Salty Special")
 local Window = VantaUI:CreateWindow({
-    Title = "SALTY Player Hub v3.7.1 | OBSIDIAN",
+    Title = "SALTY Player Hub v3.7.2 | OBSIDIAN",
     Icon = VantaUI.Brand.Image,
     Theme = "Salty Special",
-    StartupTab = "Camera", -- open on the Spectate dropdown to make v3.7.1 easy to verify
+    StartupTab = "Camera", -- open on the Spectate dropdown to make v3.7.2 easy to verify
     HideSearchBar = true,
     ToggleKey = Enum.KeyCode.RightShift,
     Branding = {
@@ -49,7 +49,7 @@ local Window = VantaUI:CreateWindow({
         Intro = false,
     },
     OpenButton = {
-        Title = "Open SALTY Obsidian Hub v3.7.1",
+        Title = "Open SALTY Obsidian Hub v3.7.2",
         Icon = VantaUI.Brand.Image,
         Enabled = true,
         Draggable = true,
@@ -74,6 +74,7 @@ local State = {
     Fly = false,
     FlySpeed = 60,
     InfiniteJump = false, -- deliberate midair re-jumps; defaults OFF
+    Nameplate = false, -- Vanta Owl overhead tag; off and unloaded by default
     AirWalk = false,
     AirWalkSize = 11,
     DashPower = 90,
@@ -135,7 +136,7 @@ local NotificationIcon = {
     Time = "clock", ["Anti-AFK"] = "coffee", Players = "users",
     ["Custom Skybox"] = "image-plus", Combat = "crosshair", ESP = "scan-eye",
     Protection = "shield", ["Full Bright"] = "sun", Server = "server",
-    Movement = "footprints", Dash = "zap", Camera = "video",
+    Movement = "footprints", Dash = "zap", Camera = "video", Nameplate = "badge-check",
     Profiles = "save", Keybinds = "keyboard", Obsidian = "gem",
 }
 local function notify(title, text)
@@ -2852,6 +2853,84 @@ local function deleteProfile()
 end
 
 ---------------------------------------------------------------------
+-- OPTIONAL NAMEPLATE | OFF BY DEFAULT, LAZY LOADED ON FIRST USE
+-- Original self-only Vanta Owl module lives in this repository as a
+-- standalone file. Off means no BillboardGui, animations or event listeners.
+---------------------------------------------------------------------
+local NameplateModule = nil
+local NameplateController = nil
+local NameplateLoadEpoch = 0
+
+local function stopNameplate()
+    State.Nameplate = false
+    NameplateLoadEpoch += 1 -- invalidate any in-flight network/asset load
+    local controller = NameplateController
+    NameplateController = nil
+    if controller then
+        pcall(function() controller:Destroy() end)
+    end
+end
+
+local function setNameplate(enabled)
+    enabled = enabled == true
+    if not State.Running then return end
+    if not enabled then
+        stopNameplate()
+        return
+    end
+    if State.Nameplate then return end
+    State.Nameplate = true
+    NameplateLoadEpoch += 1
+    local epoch = NameplateLoadEpoch
+
+    -- Do not block the UI while fetching the helper or owl image.
+    task.spawn(function()
+        if not NameplateModule then
+            local loaded, outcome = pcall(function()
+                local url = "https://raw.githubusercontent.com/MrRos3/SaltyP1/main/nameplate.lua?v="
+                    .. tostring(DateTime.now().UnixTimestampMillis)
+                local source = game:HttpGet(url, true)
+                local factory, compilerError = loadstring(source)
+                if not factory then error(compilerError or "Nameplate source could not compile") end
+                local module = factory()
+                if type(module) ~= "table" or type(module.new) ~= "function" then
+                    error("Nameplate module did not return a valid controller factory")
+                end
+                return module
+            end)
+            if not loaded then
+                if State.Running and State.Nameplate and epoch == NameplateLoadEpoch then
+                    stopNameplate()
+                    uiSet("Nameplate", false, false)
+                    notify("Nameplate", "Could not load the nameplate: " .. tostring(outcome):sub(1, 130))
+                end
+                return
+            end
+            NameplateModule = outcome
+        end
+        if not State.Running or not State.Nameplate or epoch ~= NameplateLoadEpoch then
+            return
+        end
+        local ok, controller = pcall(NameplateModule.new, {Enabled = true})
+        if not ok or type(controller) ~= "table" or type(controller.Destroy) ~= "function" then
+            if State.Running and State.Nameplate and epoch == NameplateLoadEpoch then
+                stopNameplate()
+                uiSet("Nameplate", false, false)
+                notify("Nameplate", "Could not create the nameplate: " .. tostring(controller):sub(1, 130))
+            end
+            return
+        end
+        -- If toggled OFF during asset/character loading, destroy immediately.
+        if not State.Running or not State.Nameplate or epoch ~= NameplateLoadEpoch then
+            pcall(function() controller:Destroy() end)
+            return
+        end
+        NameplateController = controller
+        notify("Nameplate", "Vanta Owl overhead nameplate enabled")
+    end)
+end
+
+---------------------------------------------------------------------
 -- UI
 ---------------------------------------------------------------------
 local MovementTab = Window:Tab({Title = "Movement", Icon = "footprints"})
@@ -2893,7 +2972,7 @@ local SettingsTab = Window:Tab({
 -- section's runtime error cannot hide the Spectate dropdown or WalkFling toggle.
 ---------------------------------------------------------------------
 CameraTab:Paragraph({
-    Title = "SALTY v3.7.1 • Camera Suite",
+    Title = "SALTY v3.7.2 • Camera Suite",
     Desc = "NEW: Spectate Player dropdown below, independent from Fling/Teleport. Search nickname or @username. You can change targets live.",
 })
 CameraTab:Section({Title = "Spectate", Icon = "eye"})
@@ -2924,7 +3003,7 @@ end})
 -- FLING TAB: optional WalkFling toggle and restored original target fling.
 ---------------------------------------------------------------------
 FlingTab:Paragraph({
-    Title = "SALTY v3.7.1 • WalkFling / No-Spin Physics",
+    Title = "SALTY v3.7.2 • WalkFling / No-Spin Physics",
     Desc = "Inspired by Infinite Yield's WalkFling: velocity pulses while you walk into targets, with no visual spinning. Depends on server physics and network ownership. Toggle OFF to restore normal controls.",
 })
 WalkFlingControl = FlingTab:Toggle({
@@ -2990,6 +3069,13 @@ FlingTab:Button({
 ---------------------------------------------------------------------
 -- PLAYER TAB
 ---------------------------------------------------------------------
+PlayerTab:Section({Title = "Nameplate", Icon = "badge-check"})
+ProfileControls.Nameplate = PlayerTab:Toggle({
+    Title = "Vanta Owl Nameplate",
+    Desc = "Self-only overhead tag: twin owls, Michroma name and animated crimson border. OFF by default; loaded only when enabled.",
+    Value = false,
+    Callback = setNameplate,
+})
 PlayerTab:Section({Title = "Fly", Icon = "wind"})
 ProfileControls.Fly = PlayerTab:Toggle({
     Title = "Fly",
@@ -3391,7 +3477,7 @@ local function randomSkybox()
     applySkybox(chosen)
 end
 VisualsTab:Paragraph({
-    Title = "SALTY v3.7.1 • 32 Skybox Choices",
+    Title = "SALTY v3.7.2 • 32 Skybox Choices",
     Desc = "12 NEW cinematic sky looks include Crimson Veil, Obsidian Eclipse, Lavender Dream, Neon Sakura and more. Open Skybox Preset below to see them all.",
 })
 VisualsTab:Section({Title = "Skybox", Icon = "image"})
@@ -3783,6 +3869,7 @@ local function cleanup()
         return
     end
     State.Running = false
+    stopNameplate()
     State.ServerHopBusy = false
     HopGeneration = HopGeneration + 1
     State.CancelFling = true
@@ -3857,7 +3944,7 @@ pcall(function()
     end)
 end)
 notify(
-    "SALTY Player Hub v3.7.1",
+    "SALTY Player Hub v3.7.2",
     "Obsidian ready • Air Walk • Dash • Spectate • ESP • Anti-Void"
 )
 end -- initializeObsidian: compiler register boundary
