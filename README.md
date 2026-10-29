@@ -1,6 +1,6 @@
-# SALTY Player Hub v3.7.1 (Obsidian Edition)
+# SALTY Player Hub v3.7.2 (Obsidian Edition)
 
-A single-file Roblox Lua client hub based on VantaUI.
+A Roblox Lua client hub based on VantaUI. The main script is in `main.lua`; the optional nameplate module loads only when enabled.
 
 ## Run the latest GitHub version
 
@@ -8,11 +8,19 @@ A single-file Roblox Lua client hub based on VantaUI.
 loadstring(game:HttpGet("https://raw.githubusercontent.com/MrRos3/SaltyP1/main/loader.lua?fresh=" .. tostring(DateTime.now().UnixTimestampMillis), true))()
 ```
 
-**Use the loader above** instead of the old static `main.lua` URL. It cache-busts the GitHub source, verifies the Spectate and WalkFling controls are in the downloaded script, and reports Luau compilation and startup errors in the executor console. The window title should show `SALTY Player Hub v3.7.1`.
+**Use the loader above** instead of the old static `main.lua` URL. It cache-busts the GitHub source, verifies the Spectate and WalkFling controls are in the downloaded script, and reports Luau compilation and startup errors in the executor console. The window title should show `SALTY Player Hub v3.7.2`.
 
-**Visibility check:** `Camera` tab → `Spectate Player` (nickname and @username dropdown) and `Fling` tab → `WalkFling (Touch Fling)` toggle. The two UI sections now initialize before other tabs' feature controls.
+**Visibility check:** `Player` tab → `Vanta Owl Nameplate` (OFF by default), `Camera` tab → `Spectate Player` (nickname and @username dropdown), and `Fling` tab → `WalkFling (Touch Fling)` toggle. The two UI sections now initialize before other tabs' feature controls.
 
 The hub fetches VantaUI from [MrRos3/VantaUI](https://github.com/MrRos3/VantaUI). Your environment must support `loadstring` and `game:HttpGet`. This is an independent client script, not a Roblox Studio plugin.
+
+## Optional Vanta Owl nameplate (v3.7.2)
+
+- New **Player → Vanta Owl Nameplate** toggle, **OFF by default**. It does not load any nameplate code or create any nameplate instances until you enable it.
+- Uses the original self-only overhead nameplate from [VantaTest](https://github.com/MrRos3/VantaTest/blob/main/nameplate.lua): fully rounded obsidian capsule, twin owl icons, Michroma display name, crimson rotating border and a timed white name-shine sweep.
+- The optional [nameplate.lua](nameplate.lua) is fetched from this repo only on first enable; toggling OFF destroys the controller, overhead GUI, animation tweens and connections. Reloading the hub cleans up an old controller.
+- On executors without `getcustomasset` / `getsynasset` and file APIs, the module uses its owl emoji fallback instead of the PNG. This local nameplate is **visible only to you**, not other players.
+- Separate from your VantaUI window's crimson particle effects, which stay enabled.
 
 ## GUI particles restored (v3.7.1)
 
@@ -56,7 +64,7 @@ These are source-level performance optimizations, **not measured FPS guarantees*
 ## Fixed in v3.7.1
 
 - Fixed the Luau compiler error `Out of local registers when trying to allocate profileNames: exceeded limit 200` by moving the Obsidian features and their UI into a dedicated function scope.
-- Kept Fly, Infinite Jump, Air Walk, Dash, Spectate, Freecam, Anti-Void, Fling & Return, combat assistance, player ESP, teleport, skybox controls, server hop, profiles, and waypoints.
+- Kept Fly, Infinite Jump, Air Walk, Dash, Spectate, Anti-Void, Fling & Return, combat assistance, player ESP, teleport, skybox controls, server hop and profiles. Freecam and Waypoints were removed in v3.7.0.
 - Added a dedicated Spectate dropdown in the Camera tab, independently tracking the target's nickname and username with live updates; changing the dropdown switches the live camera subject.
 - Reverted targeted **Fling & Return** to the ORIGINAL v3.3.2 engine (BodyAngularVelocity + BodyVelocity, target chase, save and return to original position). The newer bounded horizontal-only contact changes are gone, and the Contact Power slider was removed because it no longer applies. This also restores the original spin/upward-movement behavior.
 - Added **WalkFling (Touch Fling)** in the Fling tab. Inspired by Infinite Yield's [WalkFling](https://github.com/EdgeIY/infiniteyield): high-velocity pulses while walking, without continuous body spinning.
@@ -68,7 +76,8 @@ These are source-level performance optimizations, **not measured FPS guarantees*
 
 ## Files
 
-- [main.lua](main.lua): complete script, no ZIP files.
+- [main.lua](main.lua): complete core script, no ZIP files.
+- [nameplate.lua](nameplate.lua): optional Vanta Owl overhead nameplate, only loaded on toggle ON.
 - [loader.lua](loader.lua): fresh-version checker and startup diagnostics.
 
 ## Testing note
