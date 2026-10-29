@@ -1,9 +1,9 @@
 -- v2.8: Adaptive / Force Override third-person camera; original anti-fling ON, full bright OFF.
--- SALTY Player Hub v3.7.0 OBSIDIAN EDITION: Movement, Camera, Keybinds & Profiles.
+-- SALTY Player Hub v3.7.1 OBSIDIAN EDITION: Movement, Camera, Keybinds & Profiles.
 -- Custom SALTY Full Bright (OFF), Anti-Fling (ON).
 -- Optimized cached part tracking; preserves v2.5 movement and ESP improvements.
 -- Untested in live Roblox. Collisions are governed by server and network ownership.
--- SALTY Player Hub v3.7.0 | OBSIDIAN EDITION
+-- SALTY Player Hub v3.7.1 | OBSIDIAN EDITION
 -- Universal player-only script:
 -- Fly, infinite jump, movement, fling, combat assistance, player ESP, skyboxes and time.
 if getgenv and getgenv().__SALTY_PLAYER_CLEANUP then
@@ -18,7 +18,7 @@ if getgenv and getgenv().__SALTY_PLAYER_WINDOW then
 end
 local ENV = getgenv and getgenv() or _G
 ENV.__SALTY_PLAYER_VERSION = "3.4.1"
-warn("[SALTY Player Hub v3.7.0] Updated source fetched; initializing controls...")
+warn("[SALTY Player Hub v3.7.1] Updated source fetched; initializing controls...")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -33,10 +33,10 @@ local VantaUI = loadstring(game:HttpGet(
 ))()
 VantaUI:SetTheme("Salty Special")
 local Window = VantaUI:CreateWindow({
-    Title = "SALTY Player Hub v3.7.0 | OBSIDIAN",
+    Title = "SALTY Player Hub v3.7.1 | OBSIDIAN",
     Icon = VantaUI.Brand.Image,
     Theme = "Salty Special",
-    StartupTab = "Camera", -- open on the Spectate dropdown to make v3.7.0 easy to verify
+    StartupTab = "Camera", -- open on the Spectate dropdown to make v3.7.1 easy to verify
     HideSearchBar = true,
     ToggleKey = Enum.KeyCode.RightShift,
     Branding = {
@@ -49,7 +49,7 @@ local Window = VantaUI:CreateWindow({
         Intro = false,
     },
     OpenButton = {
-        Title = "Open SALTY Obsidian Hub v3.7.0",
+        Title = "Open SALTY Obsidian Hub v3.7.1",
         Icon = VantaUI.Brand.Image,
         Enabled = true,
         Draggable = true,
@@ -66,14 +66,9 @@ local Window = VantaUI:CreateWindow({
 })
 -- Keep a handle to this window for clean replacements on the next execution.
 ENV.__SALTY_PLAYER_WINDOW = Window
--- Keep VantaUI wallpaper but disable 50 moving background particles.
--- The upstream ambient connection disconnects after its overlay is removed.
-pcall(function()
-    local main = Window.UIElements and Window.UIElements.Main
-    local bg = main and main:FindFirstChild("Background")
-    local ambient = bg and bg:FindFirstChild("Crimson01Ambient")
-    if ambient then ambient:Destroy() end
-end)
+-- Keep VantaUI's native crimson petal / ember / mote / glint ambience.
+-- The library already pools 50 particles and throttles them to 30 FPS.
+-- Do not delete its Crimson01Ambient overlay: users expect the effect.
 local State = {
     Running = true,
     Fly = false,
@@ -2898,7 +2893,7 @@ local SettingsTab = Window:Tab({
 -- section's runtime error cannot hide the Spectate dropdown or WalkFling toggle.
 ---------------------------------------------------------------------
 CameraTab:Paragraph({
-    Title = "SALTY v3.7.0 • Camera Suite",
+    Title = "SALTY v3.7.1 • Camera Suite",
     Desc = "NEW: Spectate Player dropdown below, independent from Fling/Teleport. Search nickname or @username. You can change targets live.",
 })
 CameraTab:Section({Title = "Spectate", Icon = "eye"})
@@ -2929,7 +2924,7 @@ end})
 -- FLING TAB: optional WalkFling toggle and restored original target fling.
 ---------------------------------------------------------------------
 FlingTab:Paragraph({
-    Title = "SALTY v3.7.0 • WalkFling / No-Spin Physics",
+    Title = "SALTY v3.7.1 • WalkFling / No-Spin Physics",
     Desc = "Inspired by Infinite Yield's WalkFling: velocity pulses while you walk into targets, with no visual spinning. Depends on server physics and network ownership. Toggle OFF to restore normal controls.",
 })
 WalkFlingControl = FlingTab:Toggle({
@@ -3396,7 +3391,7 @@ local function randomSkybox()
     applySkybox(chosen)
 end
 VisualsTab:Paragraph({
-    Title = "SALTY v3.7.0 • 32 Skybox Choices",
+    Title = "SALTY v3.7.1 • 32 Skybox Choices",
     Desc = "12 NEW cinematic sky looks include Crimson Veil, Obsidian Eclipse, Lavender Dream, Neon Sakura and more. Open Skybox Preset below to see them all.",
 })
 VisualsTab:Section({Title = "Skybox", Icon = "image"})
@@ -3862,7 +3857,7 @@ pcall(function()
     end)
 end)
 notify(
-    "SALTY Player Hub v3.7.0",
+    "SALTY Player Hub v3.7.1",
     "Obsidian ready • Air Walk • Dash • Spectate • ESP • Anti-Void"
 )
 end -- initializeObsidian: compiler register boundary
