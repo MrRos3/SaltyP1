@@ -1,9 +1,9 @@
 -- v2.8: Adaptive / Force Override third-person camera; original anti-fling ON, full bright OFF.
--- SALTY Player Hub v3.7.2 OBSIDIAN EDITION: Movement, Camera, Keybinds & Profiles.
+-- SALTY Player Hub v3.8.0 OBSIDIAN EDITION: Movement, Camera, Keybinds & Profiles.
 -- Custom SALTY Full Bright (OFF), Anti-Fling (ON).
 -- Optimized cached part tracking; preserves v2.5 movement and ESP improvements.
 -- Untested in live Roblox. Collisions are governed by server and network ownership.
--- SALTY Player Hub v3.7.2 | OBSIDIAN EDITION
+-- SALTY Player Hub v3.8.0 | OBSIDIAN EDITION
 -- Universal player-only script:
 -- Fly, infinite jump, movement, fling, combat assistance, player ESP, skyboxes and time.
 if getgenv and getgenv().__SALTY_PLAYER_CLEANUP then
@@ -17,8 +17,8 @@ if getgenv and getgenv().__SALTY_PLAYER_WINDOW then
     getgenv().__SALTY_PLAYER_WINDOW = nil
 end
 local ENV = getgenv and getgenv() or _G
-ENV.__SALTY_PLAYER_VERSION = "3.4.1"
-warn("[SALTY Player Hub v3.7.2] Updated source fetched; initializing controls...")
+ENV.__SALTY_PLAYER_VERSION = "3.8.0"
+warn("[SALTY Player Hub v3.8.0] Updated source fetched; initializing controls...")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -33,10 +33,10 @@ local VantaUI = loadstring(game:HttpGet(
 ))()
 VantaUI:SetTheme("Salty Special")
 local Window = VantaUI:CreateWindow({
-    Title = "SALTY Player Hub v3.7.2 | OBSIDIAN",
+    Title = "SALTY Player Hub v3.8.0 | OBSIDIAN",
     Icon = VantaUI.Brand.Image,
     Theme = "Salty Special",
-    StartupTab = "Camera", -- open on the Spectate dropdown to make v3.7.2 easy to verify
+    StartupTab = "Camera", -- open on the Spectate dropdown to make v3.8.0 easy to verify
     HideSearchBar = true,
     ToggleKey = Enum.KeyCode.RightShift,
     Branding = {
@@ -49,7 +49,7 @@ local Window = VantaUI:CreateWindow({
         Intro = false,
     },
     OpenButton = {
-        Title = "Open SALTY Obsidian Hub v3.7.2",
+        Title = "Open SALTY Obsidian Hub v3.8.0",
         Icon = VantaUI.Brand.Image,
         Enabled = true,
         Draggable = true,
@@ -1075,92 +1075,127 @@ local function setNoClip(enabled)
         NoClipCharacter = nil
     end
 end
--- ANTI-FLING: event-driven collision guard (ON by default).
--- Every player-character is indexed ONCE; changed/new parts are handled by
--- property and DescendantAdded signals, not expensive per-frame world scans.
--- All subscriptions and original CanCollide states restore on disable.
+-- ANTI-FLING: NEARBY PLAYERS ONLY, TIME-SLICED
+-- Other players' part-property events were firing continuously as some games
+-- rewrite CanCollide, causing FPS degradation after several minutes.
+-- Scan at most ~5 times/sec; only monitor up to 96 parts per nearby character.
+-- Disconnect a nearby avatar as soon as it leaves range / respawns.
 ---------------------------------------------------------------------
 local AFChanged = setmetatable({}, {__mode = "k"})
 local AFTracked = {}
-local AFPlayerListeners = {}
-local AFRosterAdded, AFRosterRemoving
-local AFGuardActive = false
+local AFStepConnection = nil
+local AFElapsed = 0
+local AFActive = false
+local AFRadiusSquared = 28 * 28
+local AFMaxParts = 96
 
 local function afUnwatchCharacter(player)
     local record = AFTracked[player]
     if not record then return end
-    if record.DescendantAdded then record.DescendantAdded:Disconnect() end
-    for _, connection in pairs(record.PartConnections) do
-        connection:Disconnect()
+    if record.Added then record.Added:Disconnect() end
+    -- Restore only parts this guard actually changed.
+    for part in pairs(record.Parts) do
+        local original = AFChanged[part]
+        if original ~= nil then
+            if part.Parent and not part.CanCollide then
+                pcall(function() part.CanCollide = original end)
+            end
+            AFChanged[part] = nil
+        end
     end
     AFTracked[player] = nil
 end
 
-local function afUnwatchPlayer(player)
-    afUnwatchCharacter(player)
-    local conns = AFPlayerListeners[player]
-    if conns then
-        for _, connection in ipairs(conns) do
-            connection:Disconnect()
-        end
-        AFPlayerListeners[player] = nil
-    end
-end
-
-local function afGuardPart(part)
-    if part and part.Parent and part.CanCollide and AFGuardActive
-        and State.Running and State.AntiFling and not State.AntiFlingSuspended then
-        AFChanged[part] = true
+local function afProtectPart(part)
+    if not part.Parent or not part:IsA("BasePart") then return end
+    if part.CanCollide then
+        if AFChanged[part] == nil then AFChanged[part] = true end
         part.CanCollide = false
     end
 end
 
 local function afWatchCharacter(player, char)
     afUnwatchCharacter(player)
-    if not char or not AFGuardActive then return end
-    local record = {Character = char, PartConnections = {}, DescendantAdded = nil}
+    local record = {Character = char, Parts = {}, Count = 0}
     AFTracked[player] = record
-    local function watchPart(part)
-        if not part:IsA("BasePart") or record.PartConnections[part] then return end
-        record.PartConnections[part] = part:GetPropertyChangedSignal("CanCollide"):Connect(function()
-            if AFTracked[player] == record then afGuardPart(part) end
-        end)
-        afGuardPart(part)
+    local function addPart(part)
+        if not part:IsA("BasePart") or record.Parts[part] then return end
+        if record.Count >= AFMaxParts then return end
+        record.Count += 1
+        record.Parts[part] = true
+        afProtectPart(part)
     end
-    for _, part in ipairs(char:GetDescendants()) do watchPart(part) end
-    record.DescendantAdded = char.DescendantAdded:Connect(watchPart)
-end
-
-local function afWatchPlayer(player)
-    if player == LocalPlayer or AFPlayerListeners[player] then return end
-    AFPlayerListeners[player] = {
-        player.CharacterAdded:Connect(function(char) afWatchCharacter(player, char) end),
-        player.CharacterRemoving:Connect(function() afUnwatchCharacter(player) end),
-    }
-    if player.Character then afWatchCharacter(player, player.Character) end
+    -- One initial scan, never a per-frame GetDescendants() traversal.
+    for _, part in ipairs(char:GetDescendants()) do
+        addPart(part)
+        if record.Count >= AFMaxParts then break end
+    end
+    record.Added = char.DescendantAdded:Connect(addPart)
 end
 
 local function afStop()
-    AFGuardActive = false
-    if AFRosterAdded then AFRosterAdded:Disconnect(); AFRosterAdded = nil end
-    if AFRosterRemoving then AFRosterRemoving:Disconnect(); AFRosterRemoving = nil end
-    for player in pairs(AFPlayerListeners) do afUnwatchPlayer(player) end
-    -- Disconnect watchers BEFORE restoring collisions, avoiding callback loops.
-    for part in pairs(AFChanged) do
-        if part and part.Parent and not part.CanCollide then
-            pcall(function() part.CanCollide = true end)
+    AFActive = false
+    if AFStepConnection then
+        AFStepConnection:Disconnect()
+        AFStepConnection = nil
+    end
+    for player in pairs(AFTracked) do afUnwatchCharacter(player) end
+    -- Additional safety if a part left the record during a character rebuild.
+    for part, original in pairs(AFChanged) do
+        if part.Parent and not part.CanCollide then
+            pcall(function() part.CanCollide = original end)
         end
         AFChanged[part] = nil
     end
+    AFElapsed = 0
 end
 
 local function afStart()
-    if AFGuardActive or not State.Running or not State.AntiFling
+    if AFStepConnection or not State.Running or not State.AntiFling
         or State.AntiFlingSuspended then return end
-    AFGuardActive = true
-    for _, player in ipairs(Players:GetPlayers()) do afWatchPlayer(player) end
-    AFRosterAdded = Players.PlayerAdded:Connect(afWatchPlayer)
-    AFRosterRemoving = Players.PlayerRemoving:Connect(afUnwatchPlayer)
+    AFActive = true
+    AFElapsed = 0.18 -- Run first scan promptly without blocking startup.
+    AFStepConnection = RunService.Heartbeat:Connect(function(dt)
+        if not AFActive or not State.Running or not State.AntiFling
+            or State.AntiFlingSuspended then return end
+        AFElapsed += math.min(dt, 0.1)
+        if AFElapsed < 0.18 then return end
+        AFElapsed = 0
+        local myRoot = rootPart()
+        if not myRoot then return end
+
+        local nearby = {}
+        local myPosition = myRoot.Position
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local char = player.Character
+                local theirRoot = char and char:FindFirstChild("HumanoidRootPart")
+                if theirRoot and (theirRoot.Position - myPosition):Dot(
+                    theirRoot.Position - myPosition) <= AFRadiusSquared then
+                    nearby[player] = true
+                    local record = AFTracked[player]
+                    if not record or record.Character ~= char then
+                        afWatchCharacter(player, char)
+                        record = AFTracked[player]
+                    end
+                    if record then
+                        for part in pairs(record.Parts) do
+                            if part.Parent then
+                                afProtectPart(part)
+                            else
+                                record.Parts[part] = nil
+                                record.Count -= 1
+                                AFChanged[part] = nil
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        for player in pairs(AFTracked) do
+            if not nearby[player] then afUnwatchCharacter(player) end
+        end
+    end)
 end
 
 local function setAntiFling(enabled)
@@ -2637,7 +2672,7 @@ end))
 -- OBSIDIAN SETTINGS STORE | graceful session-only mode if FS unavailable.
 ---------------------------------------------------------------------
 local StorePath = "SALTY_Player_Hub/Obsidian_v3.3.json"
-local Store = {version = 1, profiles = {}, bindings = {
+local Store = {version = 1, profiles = {}, savedLocations = {}, bindings = {
     Dash = "X", ["Air Walk"] = "G", Spectate = "B", Panic = "BackSlash",
 }}
 local StoreWritable = type(writefile) == "function"
@@ -2659,6 +2694,9 @@ if type(readfile) == "function" then
             local decoded = HttpService:JSONDecode(readfile(StorePath))
             if type(decoded) == "table" and decoded.version == 1 then
                 if type(decoded.profiles) == "table" then Store.profiles = decoded.profiles end
+                if type(decoded.savedLocations) == "table" then
+                    Store.savedLocations = decoded.savedLocations
+                end
                 if type(decoded.bindings) == "table" then
                     for action in pairs(Store.bindings) do
                         local key = decoded.bindings[action]
@@ -2671,6 +2709,44 @@ if type(readfile) == "function" then
         end
     end)
 end
+-- One remembered location per place; loaded only in the same PlaceId.
+-- Preserve the user's save across re-execution where readfile/writefile work.
+local SavedPlaceKey = tostring(game.PlaceId)
+local function savedLocationToCFrame(value)
+    if type(value) ~= "table" or #value ~= 12 then return nil end
+    for _, n in ipairs(value) do
+        if type(n) ~= "number" or n ~= n or math.abs(n) > 1e7 then
+            return nil
+        end
+    end
+    local ok, cf = pcall(function() return CFrame.new(table.unpack(value)) end)
+    return ok and cf or nil
+end
+State.SavedCFrame = savedLocationToCFrame(Store.savedLocations[SavedPlaceKey])
+local function saveCurrentLocation()
+    if State.Flinging then
+        return notify("Teleport", "Finish Fling & Return before saving")
+    end
+    local root = rootPart()
+    if not root or not root.Parent then
+        return notify("Teleport", "Your character isn't ready")
+    end
+    State.SavedCFrame = root.CFrame
+    Store.savedLocations[SavedPlaceKey] = {State.SavedCFrame:GetComponents()}
+    local savedToFile = persistStore()
+    notify("Teleport", savedToFile
+        and "Current location saved for this place, including future sessions"
+        or "Current location saved for this session")
+end
+local function returnSavedLocation()
+    if not State.SavedCFrame then
+        return notify("Teleport", "No saved location in this place. Save one first.")
+    end
+    if teleport(State.SavedCFrame + Vector3.new(0, 2, 0)) then
+        notify("Teleport", "Returned to your saved location")
+    end
+end
+
 ProfileControls = {}
 local function trackSetting(name, control)
     ProfileControls[name] = control
@@ -2972,7 +3048,7 @@ local SettingsTab = Window:Tab({
 -- section's runtime error cannot hide the Spectate dropdown or WalkFling toggle.
 ---------------------------------------------------------------------
 CameraTab:Paragraph({
-    Title = "SALTY v3.7.2 • Camera Suite",
+    Title = "SALTY v3.8.0 • Camera Suite",
     Desc = "NEW: Spectate Player dropdown below, independent from Fling/Teleport. Search nickname or @username. You can change targets live.",
 })
 CameraTab:Section({Title = "Spectate", Icon = "eye"})
@@ -3003,7 +3079,7 @@ end})
 -- FLING TAB: optional WalkFling toggle and restored original target fling.
 ---------------------------------------------------------------------
 FlingTab:Paragraph({
-    Title = "SALTY v3.7.2 • WalkFling / No-Spin Physics",
+    Title = "SALTY v3.8.0 • WalkFling / No-Spin Physics",
     Desc = "Inspired by Infinite Yield's WalkFling: velocity pulses while you walk into targets, with no visual spinning. Depends on server physics and network ownership. Toggle OFF to restore normal controls.",
 })
 WalkFlingControl = FlingTab:Toggle({
@@ -3194,7 +3270,7 @@ ProfileControls.NoClip = PlayerTab:Toggle({
 PlayerTab:Section({Title = "Protection", Icon = "shield"})
 ProfileControls.AntiFling = PlayerTab:Toggle({
     Title = "Anti-Fling",
-    Desc = "ON by default. Efficient event-driven collision guard, no full-player scans every frame. Automatically restores collision on disable.",
+    Desc = "ON by default. Protects against nearby player collisions with low-frequency checks. Automatically restores collisions on disable.",
     Value = true,
     Callback = function(value)
         setAntiFling(value)
@@ -3251,29 +3327,16 @@ TeleportTab:Toggle({
     end,
 })
 TeleportTab:Button({
-    Title = "Save Position",
+    Title = "Save Current Location",
     Icon = "bookmark",
-    Callback = function()
-        local root = rootPart()
-        if not root then
-            return
-        end
-        State.SavedCFrame = root.CFrame
-        notify("Teleport", "Position saved")
-    end,
+    Desc = "Save one location for this game. Persists across sessions if your executor supports file storage.",
+    Callback = saveCurrentLocation,
 })
 TeleportTab:Button({
-    Title = "Return To Saved Position",
+    Title = "Return to Saved Location",
     Icon = "undo-2",
-    Callback = function()
-        if not State.SavedCFrame then
-            return notify(
-                "Teleport",
-                "No saved position"
-            )
-        end
-        teleport(State.SavedCFrame)
-    end,
+    Desc = "Return to your saved point with a small safe height offset.",
+    Callback = returnSavedLocation,
 })
 ServerTab:Section({Title = "Session Controls", Icon = "server"})
 ServerTab:Button({
@@ -3477,7 +3540,7 @@ local function randomSkybox()
     applySkybox(chosen)
 end
 VisualsTab:Paragraph({
-    Title = "SALTY v3.7.2 • 32 Skybox Choices",
+    Title = "SALTY v3.8.0 • 32 Skybox Choices",
     Desc = "12 NEW cinematic sky looks include Crimson Veil, Obsidian Eclipse, Lavender Dream, Neon Sakura and more. Open Skybox Preset below to see them all.",
 })
 VisualsTab:Section({Title = "Skybox", Icon = "image"})
@@ -3819,7 +3882,7 @@ ConfigTab:Button({Title = "Refresh Profiles", Icon = "refresh-cw", Callback = re
 refreshProfiles()
 ConfigTab:Paragraph({
     Title = "Storage Notice",
-    Desc = "Profiles use an executor-local JSON file where supported. Without file APIs, settings remain for this session. Profiles do not auto-start Fly, Fling or Spectate.",
+    Desc = "Profiles and the one saved location per game use executor-local storage where supported. Without file APIs, saves last only this session. Profiles do not auto-start Fly, Fling or Spectate.",
 })
 
 ---------------------------------------------------------------------
@@ -3944,7 +4007,7 @@ pcall(function()
     end)
 end)
 notify(
-    "SALTY Player Hub v3.7.2",
+    "SALTY Player Hub v3.8.0",
     "Obsidian ready • Air Walk • Dash • Spectate • ESP • Anti-Void"
 )
 end -- initializeObsidian: compiler register boundary
