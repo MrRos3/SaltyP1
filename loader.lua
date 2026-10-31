@@ -1,7 +1,7 @@
--- SALTY Player Hub | Fresh GitHub loader v3.7.2
+-- SALTY Player Hub | Fresh GitHub loader v3.8.0
 -- Keeps each run on the newest public main.lua rather than relying on a cached URL.
 local REPO = "https://raw.githubusercontent.com/MrRos3/SaltyP1/main/"
-local EXPECTED = "SALTY Player Hub v3.7.2"
+local EXPECTED = "SALTY Player Hub v3.8.0"
 local suffix = tostring(DateTime.now().UnixTimestampMillis) .. "-" .. tostring(math.random(100000, 999999))
 local url = REPO .. "main.lua?fresh=" .. suffix
 
@@ -42,6 +42,6 @@ local worked, runError = xpcall(compiled, function(err)
 end)
 if not worked then
     warn("[SALTY Loader] Runtime UI error: " .. tostring(runError))
-    error("SALTY v3.7.2 startup failed: " .. tostring(runError))
+    error("SALTY v3.8.0 startup failed: " .. tostring(runError))
 end
 print("[SALTY Loader] Startup complete; check Camera > Spectate Player and Fling > WalkFling.")
