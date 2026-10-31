@@ -1087,6 +1087,7 @@ local AFStepConnection = nil
 local AFElapsed = 0
 local AFActive = false
 local AFRadiusSquared = 28 * 28
+local AFExitRadiusSquared = 34 * 34 -- hysteresis prevents repeated cache rebuilds at range edge
 local AFMaxParts = 96
 
 local function afUnwatchCharacter(player)
@@ -1170,8 +1171,12 @@ local function afStart()
             if player ~= LocalPlayer then
                 local char = player.Character
                 local theirRoot = char and char:FindFirstChild("HumanoidRootPart")
+                -- Tracked avatars have a slightly wider exit radius to
+                -- avoid repeated connect/restore cycles on the range border.
+                local radiusSquared = AFTracked[player]
+                    and AFExitRadiusSquared or AFRadiusSquared
                 if theirRoot and (theirRoot.Position - myPosition):Dot(
-                    theirRoot.Position - myPosition) <= AFRadiusSquared then
+                    theirRoot.Position - myPosition) <= radiusSquared then
                     nearby[player] = true
                     local record = AFTracked[player]
                     if not record or record.Character ~= char then
