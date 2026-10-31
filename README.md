@@ -1,6 +1,6 @@
-# SALTY Player Hub v3.7.2 (Obsidian Edition)
+# SALTY Player Hub v3.8.0 (Obsidian Edition)
 
-A Roblox Lua client hub based on VantaUI. The main script is in `main.lua`; the optional nameplate module loads only when enabled.
+A Roblox Lua client hub based on VantaUI. The core is in `main.lua`; the optional owl nameplate module loads only when enabled.
 
 ## Run the latest GitHub version
 
@@ -8,13 +8,23 @@ A Roblox Lua client hub based on VantaUI. The main script is in `main.lua`; the 
 loadstring(game:HttpGet("https://raw.githubusercontent.com/MrRos3/SaltyP1/main/loader.lua?fresh=" .. tostring(DateTime.now().UnixTimestampMillis), true))()
 ```
 
-**Use the loader above** instead of the old static `main.lua` URL. It cache-busts the GitHub source, verifies the Spectate and WalkFling controls are in the downloaded script, and reports Luau compilation and startup errors in the executor console. The window title should show `SALTY Player Hub v3.7.2`.
+**Use the loader above** instead of the old static `main.lua` URL. It cache-busts the GitHub source, verifies the Spectate and WalkFling controls are in the downloaded script, and reports Luau compilation and startup errors in the executor console. The window title should show `SALTY Player Hub v3.8.0`.
 
 **Visibility check:** `Player` tab → `Vanta Owl Nameplate` (OFF by default), `Camera` tab → `Spectate Player` (nickname and @username dropdown), and `Fling` tab → `WalkFling (Touch Fling)` toggle. The two UI sections now initialize before other tabs' feature controls.
 
 The hub fetches VantaUI from [MrRos3/VantaUI](https://github.com/MrRos3/VantaUI). Your environment must support `loadstring` and `game:HttpGet`. This is an independent client script, not a Roblox Studio plugin.
 
-## Optional Vanta Owl nameplate (v3.7.2)
+## Long-session lag reduction and saved location (v3.8.0)
+
+- **Fixed a likely lag source:** Anti-Fling previously added a `CanCollide` change listener to every body part of every other player. In games that continuously update collision properties, those callbacks can become extremely frequent as a session progresses.
+- **New bounded protection:** The collision guard now scans nearby players (within about 28 studs, with 34-stud exit hysteresis) at approximately five checks per second, caches up to 96 parts per nearby character, and removes tracking when they leave, respawn or Anti-Fling is disabled. No per-part `CanCollide` signal connections remain.
+- **Save Current Location:** In the Teleport tab, stores your present position and orientation as a single slot for the current `PlaceId`. If executor file APIs are supported, it's saved in the same `SALTY_Player_Hub/Obsidian_v3.3.json` store and reloaded the next time you run the hub in that place.
+- **Return to Saved Location:** In the Teleport tab, teleports to that spot with a small +2 stud vertical offset. Both buttons replace the older session-only Save Position controls, with no Waypoints tab.
+- The crimson animated particles and OFF-by-default Vanta Owl nameplate stay untouched, as do original Fling & Return, WalkFling, Spectate, ESP + Chams, and the skyboxes.
+
+**Testing:** Source inspection identifies the unbounded collision-property callback workload as a plausible source of increasing lag, but real-world FPS impact hasn't been benchmarked. Try a clean Roblox rejoin to eliminate any leftover old listeners before measuring.
+
+## Optional Vanta Owl nameplate (v3.8.0)
 
 - New **Player → Vanta Owl Nameplate** toggle, **OFF by default**. It does not load any nameplate code or create any nameplate instances until you enable it.
 - Uses the original self-only overhead nameplate from [VantaTest](https://github.com/MrRos3/VantaTest/blob/main/nameplate.lua): fully rounded obsidian capsule, twin owl icons, Michroma display name, crimson rotating border and a timed white name-shine sweep.
@@ -53,7 +63,7 @@ The exact FPS improvement depends on the game and device. Live testing has not b
 
 No performance menus or quality presets: SALTY automatically minimizes work.
 
-- **Anti-Fling** is still ON by default, but it now caches each player's character parts once and responds to `CanCollide` changes and respawns through event listeners. This replaces the expensive `GetDescendants()` scan on *every physics frame*.
+- **Anti-Fling** is still ON by default but now uses nearby-only, timed collision checks without per-part property-change connections; it avoids scanning full characters every physics frame.
 - **ESP** stays a simple Chams + name-tag switch, with adaptive time-sliced updates.
 - **Camera** transparency caching scans the local avatar once per activation and follows new accessories through a lightweight event instead of rescanning every 0.7 seconds.
 - **Combat** keeps its existing single-pass target ranking. Automatic tool checks and FOV indicator updates are time-sliced.
