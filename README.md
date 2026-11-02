@@ -1,4 +1,4 @@
-# SALTY Player Hub v3.8.0 (Obsidian Edition)
+# SALTY Player Hub v3.8.1 (Obsidian Edition)
 
 A Roblox Lua client hub based on VantaUI. The core is in `main.lua`; the optional owl nameplate module loads only when enabled.
 
@@ -8,11 +8,19 @@ A Roblox Lua client hub based on VantaUI. The core is in `main.lua`; the optiona
 loadstring(game:HttpGet("https://raw.githubusercontent.com/MrRos3/SaltyP1/main/loader.lua?fresh=" .. tostring(DateTime.now().UnixTimestampMillis), true))()
 ```
 
-**Use the loader above** instead of the old static `main.lua` URL. It cache-busts the GitHub source, verifies the Spectate and WalkFling controls are in the downloaded script, and reports Luau compilation and startup errors in the executor console. The window title should show `SALTY Player Hub v3.8.0`.
+**Use the loader above** instead of the old static `main.lua` URL. It cache-busts the GitHub source, verifies the Spectate and WalkFling controls are in the downloaded script, and reports Luau compilation and startup errors in the executor console. The window title should show `SALTY Player Hub v3.8.1`.
 
 **Visibility check:** `Player` tab → `Vanta Owl Nameplate` (OFF by default), `Camera` tab → `Spectate Player` (nickname and @username dropdown), and `Fling` tab → `WalkFling (Touch Fling)` toggle. The two UI sections now initialize before other tabs' feature controls.
 
 The hub fetches VantaUI from [MrRos3/VantaUI](https://github.com/MrRos3/VantaUI). Your environment must support `loadstring` and `game:HttpGet`. This is an independent client script, not a Roblox Studio plugin.
+
+## Player teleport reliability (v3.8.1)
+
+- Fixed the false **"Player not available"** message when the selected player is loading or respawning: **Teleport To Player** now retries asynchronously for up to four seconds instead of checking `HumanoidRootPart` only once.
+- Supports `HumanoidRootPart`, `PrimaryPart` and torso roots used by some character rigs.
+- Checks that the selected player is still present, alive (if a Humanoid exists), and the same target before moving; newer teleport clicks supersede older pending attempts.
+- Only reports teleport success when the teleport actually succeeds. If the target never loads, it reports the temporary unavailability clearly.
+- No permanent background polling or extra UI options. Original Fling & Return, saved locations, Spectate, ESP and the nameplate remain unchanged.
 
 ## Long-session lag reduction and saved location (v3.8.0)
 
