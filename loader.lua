@@ -1,7 +1,7 @@
--- SALTY Player Hub | Obfuscated-only fresh loader v3.8.1
+-- SALTY Player Hub | Obfuscated-only fresh loader v3.9.0
 local REPO = "https://raw.githubusercontent.com/MrRos3/SaltyP1/main/"
-local EXPECTED = "SALTY Player Hub v3.8.1"
-local MARKER = "53414C545920506C61796572204875622076332E382E31"
+local EXPECTED = "SALTY Player Hub v3.9.0"
+local MARKER = "53414C545920506C61796572204875622076332E392E30"
 local DEPENDENCY_MARKER = "6E616D65706C6174652E6F6266757363617465642E6C75613F763D"
 local suffix = tostring(DateTime.now().UnixTimestampMillis) .. "-" .. tostring(math.random(100000, 999999))
 local url = REPO .. "main.obfuscated.lua?fresh=" .. suffix
