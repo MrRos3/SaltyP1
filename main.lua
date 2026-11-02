@@ -1,9 +1,9 @@
 -- v2.8: Adaptive / Force Override third-person camera; original anti-fling ON, full bright OFF.
--- SALTY Player Hub v3.8.0 OBSIDIAN EDITION: Movement, Camera, Keybinds & Profiles.
+-- SALTY Player Hub v3.8.1 OBSIDIAN EDITION: Movement, Camera, Keybinds & Profiles.
 -- Custom SALTY Full Bright (OFF), Anti-Fling (ON).
 -- Optimized cached part tracking; preserves v2.5 movement and ESP improvements.
 -- Untested in live Roblox. Collisions are governed by server and network ownership.
--- SALTY Player Hub v3.8.0 | OBSIDIAN EDITION
+-- SALTY Player Hub v3.8.1 | OBSIDIAN EDITION
 -- Universal player-only script:
 -- Fly, infinite jump, movement, fling, combat assistance, player ESP, skyboxes and time.
 if getgenv and getgenv().__SALTY_PLAYER_CLEANUP then
@@ -18,7 +18,7 @@ if getgenv and getgenv().__SALTY_PLAYER_WINDOW then
 end
 local ENV = getgenv and getgenv() or _G
 ENV.__SALTY_PLAYER_VERSION = "3.8.0"
-warn("[SALTY Player Hub v3.8.0] Updated source fetched; initializing controls...")
+warn("[SALTY Player Hub v3.8.1] Updated source fetched; initializing controls...")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -33,10 +33,10 @@ local VantaUI = loadstring(game:HttpGet(
 ))()
 VantaUI:SetTheme("Salty Special")
 local Window = VantaUI:CreateWindow({
-    Title = "SALTY Player Hub v3.8.0 | OBSIDIAN",
+    Title = "SALTY Player Hub v3.8.1 | OBSIDIAN",
     Icon = VantaUI.Brand.Image,
     Theme = "Salty Special",
-    StartupTab = "Camera", -- open on the Spectate dropdown to make v3.8.0 easy to verify
+    StartupTab = "Camera", -- open on the Spectate dropdown to make v3.8.1 easy to verify
     HideSearchBar = true,
     ToggleKey = Enum.KeyCode.RightShift,
     Branding = {
@@ -49,7 +49,7 @@ local Window = VantaUI:CreateWindow({
         Intro = false,
     },
     OpenButton = {
-        Title = "Open SALTY Obsidian Hub v3.8.0",
+        Title = "Open SALTY Obsidian Hub v3.8.1",
         Icon = VantaUI.Brand.Image,
         Enabled = true,
         Draggable = true,
@@ -1291,16 +1291,70 @@ local function getPlayer(name)
     end
     return nil
 end
+-- Player Teleport: a character may be missing its RootPart while loading
+-- or respawning. Short, asynchronous retries avoid false "not available"
+-- errors, blocking the UI, and stale teleports after a new selection.
+local PlayerTeleportEpoch = 0
 local function teleportToPlayer(name)
-    local player = getPlayer(name)
-    local targetRoot = player
-        and player.Character
-        and player.Character:FindFirstChild("HumanoidRootPart")
-    if not targetRoot then
-        return notify("Teleport", "Player not available")
+    PlayerTeleportEpoch += 1
+    local epoch = PlayerTeleportEpoch
+    local player = type(name) == "string" and getPlayer(name) or nil
+    if not player or player.Parent ~= Players then
+        return notify("Teleport", "Selected player left the server. Choose another player.")
     end
-    teleport(targetRoot.CFrame * CFrame.new(0, 0, 3.5))
-    notify("Teleport", "Teleported to " .. player.Name)
+    if State.Flinging then
+        return notify("Teleport", "Finish the current fling first")
+    end
+    if not rootPart() then
+        return notify("Teleport", "Your character is not ready yet")
+    end
+
+    -- Cap retries at 4 seconds; no permanent polling/background listener.
+    task.spawn(function()
+        local started = os.clock()
+        while State.Running and PlayerTeleportEpoch == epoch
+            and State.SelectedPlayer == name and os.clock() - started < 4 do
+            if player.Parent ~= Players or getPlayer(name) ~= player then
+                return notify("Teleport", "Player left the server during teleport")
+            end
+            if State.Flinging then
+                return notify("Teleport", "Teleport cancelled during fling")
+            end
+            local char = player.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local targetRoot = char and (
+                char:FindFirstChild("HumanoidRootPart")
+                or char.PrimaryPart
+                or char:FindFirstChild("UpperTorso")
+                or char:FindFirstChild("Torso")
+            )
+            if char and char.Parent and targetRoot and targetRoot:IsA("BasePart")
+                and targetRoot:IsDescendantOf(Workspace)
+                and (not hum or hum.Health > 0) then
+                -- Check the selected username again so an old queued attempt
+                -- can't unexpectedly teleport to someone else.
+                if PlayerTeleportEpoch ~= epoch or State.SelectedPlayer ~= name then
+                    return
+                end
+                local targetCF = targetRoot.CFrame * CFrame.new(0, 0, 3.5)
+                local ok, moved = pcall(teleport, targetCF)
+                if ok and moved then
+                    return notify("Teleport", "Teleported to " .. player.DisplayName
+                        .. " (@" .. player.Name .. ")")
+                end
+                if not ok then
+                    return notify("Teleport", "Teleport was blocked: "
+                        .. tostring(moved):sub(1, 100))
+                end
+                return notify("Teleport", "Your character isn't ready to teleport")
+            end
+            task.wait(0.12)
+        end
+        if State.Running and PlayerTeleportEpoch == epoch
+            and State.SelectedPlayer == name then
+            notify("Teleport", "Target is still respawning or hasn't loaded. Try again.")
+        end
+    end)
 end
 ---------------------------------------------------------------------
 -- SERVER HOP | PUBLIC SERVERS (manual actions only; no idle polling)
@@ -3053,7 +3107,7 @@ local SettingsTab = Window:Tab({
 -- section's runtime error cannot hide the Spectate dropdown or WalkFling toggle.
 ---------------------------------------------------------------------
 CameraTab:Paragraph({
-    Title = "SALTY v3.8.0 • Camera Suite",
+    Title = "SALTY v3.8.1 • Camera Suite",
     Desc = "NEW: Spectate Player dropdown below, independent from Fling/Teleport. Search nickname or @username. You can change targets live.",
 })
 CameraTab:Section({Title = "Spectate", Icon = "eye"})
@@ -3084,7 +3138,7 @@ end})
 -- FLING TAB: optional WalkFling toggle and restored original target fling.
 ---------------------------------------------------------------------
 FlingTab:Paragraph({
-    Title = "SALTY v3.8.0 • WalkFling / No-Spin Physics",
+    Title = "SALTY v3.8.1 • WalkFling / No-Spin Physics",
     Desc = "Inspired by Infinite Yield's WalkFling: velocity pulses while you walk into targets, with no visual spinning. Depends on server physics and network ownership. Toggle OFF to restore normal controls.",
 })
 WalkFlingControl = FlingTab:Toggle({
@@ -3311,6 +3365,7 @@ local TeleportPlayerDropdown = TeleportTab:Dropdown({
 table.insert(PlayerDropdowns, TeleportPlayerDropdown)
 TeleportTab:Button({
     Title = "Teleport To Player",
+    Desc = "Waits briefly if the selected player is respawning or still loading.",
     Icon = "send",
     Callback = function()
         if not State.SelectedPlayer then
@@ -3545,7 +3600,7 @@ local function randomSkybox()
     applySkybox(chosen)
 end
 VisualsTab:Paragraph({
-    Title = "SALTY v3.8.0 • 32 Skybox Choices",
+    Title = "SALTY v3.8.1 • 32 Skybox Choices",
     Desc = "12 NEW cinematic sky looks include Crimson Veil, Obsidian Eclipse, Lavender Dream, Neon Sakura and more. Open Skybox Preset below to see them all.",
 })
 VisualsTab:Section({Title = "Skybox", Icon = "image"})
@@ -4012,7 +4067,7 @@ pcall(function()
     end)
 end)
 notify(
-    "SALTY Player Hub v3.8.0",
+    "SALTY Player Hub v3.8.1",
     "Obsidian ready • Air Walk • Dash • Spectate • ESP • Anti-Void"
 )
 end -- initializeObsidian: compiler register boundary
