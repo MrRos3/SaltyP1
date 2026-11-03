@@ -270,7 +270,7 @@ return function(Window,Hub)
             if not enabled.Upright then flipSince=0 end
             sync()
         end})
-    pcall(function() Window:OnDestroy(cleanup) end)
+    -- Hub lifecycle is watched by the optional active loop; avoid replacing VantaUI's existing OnDestroy callback.
     if type(getgenv)==_0x92AACC("66756E6374696F6E") then pcall(function()
         getgenv().__SALTY_DRIVING_CLEANUP=cleanup
     end) end
