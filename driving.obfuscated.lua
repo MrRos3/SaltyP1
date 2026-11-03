@@ -7,6 +7,7 @@ local Me=P.LocalPlayer
 local Ray=RaycastParams.new()
 Ray.FilterType=Enum.RaycastFilterType.Exclude
 Ray.IgnoreWater=true
+Ray.RespectCanCollide=true
 return function(Window,Hub)
     local enabled={Swerve=false,Brake=false,Ghost=false,Upright=false}
     local heartbeat,car,seat=nil,nil,nil
@@ -198,7 +199,6 @@ return function(Window,Hub)
     end
     local function step(dt)
         if not active or not Hub.Running or Window.Destroyed then cleanup();return end
-        -- VehicleSeat.SteerFloat re-centers automatically; refresh only the active fallback.
         if fallback~=0 and seat and enabled.Swerve then
             if I:IsKeyDown(Enum.KeyCode.A) or I:IsKeyDown(Enum.KeyCode.D) then
                 release()
