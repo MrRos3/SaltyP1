@@ -14,7 +14,8 @@ return function(Window,Hub)
     local saved=setmetatable({},{__mode=_0x92AACC("6B")})
     local tracked=setmetatable({},{__mode=_0x92AACC("6B")})
     local count=0
-    local held,braking=0,false
+    local held,braking,fallback=0,false,0
+    local checkClock=0
     local elapsedS,elapsedG,elapsedU=0,0,0
     local steerUntil,flipSince,lastFlip=0,0,-100
     local active=true
@@ -36,14 +37,16 @@ return function(Window,Hub)
         return false
     end
     local function steering(v)
-        if v==held then return end
+        if (held~=0 and held==v) or (held==0 and fallback==v) then return end
         if held~=0 then key(keys[held],false) end
-        held=0
+        if fallback~=0 and seat then pcall(function() seat.SteerFloat=0 end) end
+        held,fallback=0,0
         if v~=0 then
             if key(keys[v],true) then held=v
-            elseif seat then pcall(function() seat.SteerFloat=v end) end
-        elseif seat then
-            pcall(function() seat.SteerFloat=0 end)
+            elseif seat then
+                local ok=pcall(function() seat.SteerFloat=v end)
+                if ok then fallback=v end
+            end
         end
     end
     local function brakingSet(v)
@@ -54,8 +57,10 @@ return function(Window,Hub)
     local function release()
         if held~=0 then key(keys[held],false) end
         if braking then key(keys[2],false) end
-        held,braking=0,false
-        if seat then pcall(function() seat.SteerFloat=0 end) end
+        if fallback~=0 and seat then
+            pcall(function() seat.SteerFloat=0 end)
+        end
+        held,braking,fallback=0,false,0
     end
     local function occupied()
         local ch=Me.Character
@@ -193,6 +198,10 @@ return function(Window,Hub)
     end
     local function step(dt)
         if not active or not Hub.Running or Window.Destroyed then cleanup();return end
+        checkClock+=math.min(dt,0.15)
+        if checkClock<0.10 then return end
+        dt=checkClock
+        checkClock=0
         local m,s=occupied()
         if m~=car or s~=seat then
             release()
